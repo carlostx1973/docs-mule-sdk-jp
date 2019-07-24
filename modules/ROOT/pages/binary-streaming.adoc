@@ -1,0 +1,56 @@
+= バイナリストリーミング
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, ストリーミング, バイナリ
+
+バイナリストリーミングのユースケースでは、ストリームは、何を表すかに関係なく一般的な方法で処理されるバイトの集まりです。たとえば、HTTP 要求の応答、FTP サーバでのファイルの取得と書き込みなどがあります。
+
+SDK は、Java `InputStream` クラスを使用してこの抽象化をサポートします。
+
+== 操作でのバイナリストリーミング
+
+操作は、ストリームパラメータを受け取るか、ストリームを返すか、またはその両方を行うことができます。
+
+ファイルコネクタの Write 操作は、ストリームに対して行う操作の例です。
+
+[source,java,linenums]
+----
+public class FileOperations {
+
+    public void write(@Content InputStream content, String path) {
+        // do the writing
+    }
+}
+----
+
+`InputStream` 型のパラメータがある場合、SDK は Mule のストリーミング機能を使用するために必要なすべてのサポートを提供します。上記の例の `content` パラメータは、常にストリームの先頭を指す反復可能なストリームに割り当てられ、それが true であるかどうかに関係なく、ストリームが初めて読み取られるかのように処理します。
+
+もう一つの可能性は、Read 操作のように、代わりにバイナリストリームを _返す_ 操作です。
+
+[source,java,linenums]
+----
+public class FileOperations {
+
+    public InputStream read(String path) {
+        // do the reading
+    }
+}
+----
+
+`InputStream` を返す場合、SDK はそのストリームを反復可能にするために必要なすべてのマジックを自動的に追加します。
+
+== ストリーミングの設定
+
+`<repeatable-file-store-stream />`、`<repeatable-in-memory-stream />`、`<non-repeatable-stream />` などの要素を許可することで、SDK はストリーミングの動作方法を設定するためのサポートを自動的に追加します。上記の Read の例でカスタムファイルストアストリーミングを設定する例を次に示します。
+
+[source,xml,linenums]
+----
+<file:read path="myFile.json">
+    <repeatable-file-store-stream inMemorySize="10" bufferUnit="KB"/>
+</file:read>
+----
+
+== 関連情報
+
+xref:streaming.adoc[ストリーミング]

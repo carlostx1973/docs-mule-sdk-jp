@@ -1,0 +1,38 @@
+= メッセージソースからフローへのメッセージのプッシュ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, ソース, リスナ, トリガ, 生成, プッシュ, メッセージ
+
+フローの情報を生成したら、ソースは `SourceCallback` を使用してフローにその情報を送信します。最小限の HTTP リスナの例に戻ります。
+
+[source,java,linenums]
+----
+public class HttpListener extends Source<InputStream, HttpRequestAttributes> {
+
+    @Override
+    public void onStart(SourceCallback<InputStream, HttpRequestAttributes> sourceCallback) throws MuleException {
+        httpServer = serverProvider.connect(); // <1>
+
+        server.listen(path).onRequest(request -> { // <2>
+            Result<InputStream, HttpRequestAttributes> result = requestToResult(request); // <3>
+            sourceCallback.handle(result); // <4>
+        });
+    }
+}
+----
+
+<1> この例では、ConnectionProvider を使用して `HttpServer` を取得します。一般的な接続プロバイダの場合、適切なホストとポートを使用してすでにサーバが設定されています。
+<2> リモートクライアントが HTTP 要求をサーバにプッシュし、`HttpServer` コンポーネントが各要求のソースを通知します。次に、ソースが `SourceCallback` を使用してメッセージをフローにプッシュします。
+<3> メッセージは、操作が複雑な出力を伝えるために使用する同じ `Result` オブジェクトを利用して表されます。詳細は、<<result-object#,Result>> オブジェクトについての説明を参照してください。
+<4> この例では、`SourceCallback` の `handle(Result)` メソッドを使用してメッセージを渡します。
+
+== スレッドモデル
+
+`handle(Result)` メソッドを介して `Result` オブジェクトが `SourceCallback` に渡されると、メソッドを呼び出すスレッドとは異なるスレッドでメッセージ処理が非同期で実行されます。
+
+次のステップでは、フロー処理の結果をキャッチし、必要に応じて応答を送信する方法について説明します。
+
+== 次のステップ
+
+* xref:sources-response.adoc[フロー出力の取得とメッセージソースからの応答の送信]

@@ -1,0 +1,12 @@
+= セキュリティ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, セキュリティ, tls, oauth
+
+作成するコネクタの接続先サービスは、ユーザの代わりにアプリケーションで通信するために、多くの場合、何らかのセキュリティを適用します。
+
+SDK には、コネクタのユーザが接続を保護するための方法が 2 つ用意されています。
+
+* <<tls#, TLS の追加>>
+* <<oauth#, OAuth 認証の追加>>

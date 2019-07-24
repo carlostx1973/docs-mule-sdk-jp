@@ -1,0 +1,50 @@
+= 外部ライブラリ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, SDK, ライブラリ, 連動関係, 外部, jar, Maven
+
+コネクタおよびモジュールは、ライセンス、バージョン設定、カスタムライブラリなどの関係でコネクタ内にパッケージ化できない外部ライブラリに依存する場合があります。
+
+同じベースコードでいくつかの異なるドライバや同じドライバのいくつかの異なるバージョンに対応する例としては、データベースコネクタがあります。この問題の解決策は、接続先となるデータベースで使用する JDBC ドライバを特定するようにデータベースコネクタのユーザに依頼することです。
+
+== 使用方法
+
+コネクタやモジュールが Mule アプリケーションで動作するために外部ライブラリを必要とするということを宣言するには、`@Extension`、<<configs#,設定>>、または <<connections#,ConnectionProvider>> クラスに `@ExternalLib` アノテーションを付加して、Mule アプリケーション開発者がこれらのライブラリの設定方法を理解しやすいようにプロパティを提供する必要があります。
+
+TIP: ユーザがライブラリをより簡単に設定できるように、アノテーションが提供するすべてのプロパティに値を設定しておくことを強くお勧めします。次に例を示します。
++
+[source,java,linenums]
+----
+@ExternalLib(name = "MySQL JDBC Driver",
+description = "A JDBC driver that supports connection to the MySQL Database",
+nameRegexpMatcher = "(.*)\\.jar",
+requiredClassName = "com.mysql.jdbc.Driver",
+coordinates = "mysql:mysql-connector-java:5.1.44")
+public class MySqlConnectionProvider implements ConnectionProvider<Connection> {
+  //
+}
+----
++
+コネクタは複数の外部ライブラリを必要とする場合もあります。`@ExternalLib` アノテーションは、必要なだけ何度でも使用できます。
+
+=== プロパティ
+
+[%header%autowidth.spread]
+|===
+| プロパティ | 必須 | 型 | 説明
+| `name` | はい | String (文字列) | UI に表示するわかりやすい名前。
+| `description` | false | String (文字列) | 外部ライブラリの簡単な説明。
+| `nameRegexpMatcher` | false | String (文字列) | ライブラリのファイル名と一致し、ユーザが指定したライブラリが正しいことを検証するために使用する正規表現。
+| `requiredClassName` | false | String (文字列) | _(Java ライブラリのみ)_  外部ライブラリに存在する `Class` の名前。ユーザが指定したライブラリが正しいことを検証するために使用します。
+| `type` | はい | Enum (列挙) a|
+* `NATIVE`: Native ライブラリの連動関係
+* `JAR`: JAR ファイルの連動関係
+* `DEPENDENCY`: 外部連動関係 (Maven を使用している場合の `pom.xml` に指定されている取得済みの連動関係など)
+| `coordinates` | false | String (文字列) | 必須ライブラリがある場所を示す Maven 座標の提案。Maven の表記規則 (`groupId:artifactId:packaging:classifier:version`) に準拠している必要があります。
+| `optional` | false | Boolean (ブール) | コネクタやモジュールが動作するためにライブラリが必要でないかどうか。
+|===
+
+
+
+// TODO @estebanwasing will add an example to clarify this

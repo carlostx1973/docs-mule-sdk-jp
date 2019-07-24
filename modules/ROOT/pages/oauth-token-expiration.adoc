@@ -1,0 +1,30 @@
+= 期限切れのアクセストークンの処理
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, セキュリティ, oauth
+
+ほとんどのサービスプロバイダは、ライフスパンが制限されたアクセストークンを返します (または返す必要があります)。一般に、アクセストークンの有効期限は発行から 30 ～ 60 分程度ですが、これはプロバイダによって厳格に適用されている標準ではありません。
+
+またプロバイダは、多くの場合にアクセストークンと一緒に更新トークンを提供します。更新トークンは、ダンスの再実行を必要とせずに期限切れのトークンを新しいトークンに置き換えるための 2 番目のトークンです。
+
+現時点では、SDK でトークンの期限切れを自動的に検出して新しいトークンを取得できるようにするような標準は適用されていません。通信方法は API ごとに異なります。そのため、`AccessTokenExpiredException` 例外が用意されています。
+
+[source,java,linenums]
+----
+public void someOperation(@Connection SalesforceRestClient client) { // <1>
+    Response response = client.performSomeOperation(); // <2>
+    if (response.getStatusCode() == 401) { // <3>
+        throw new AccessTokenExpiredException(); // <4>
+    }
+}
+----
+
+<1> 上記の例では、架空の REST クライアントを使用して操作を実行しています。この REST クライアントは、`@AuthorizationCode` アノテーションが付加された `ConnectionProvider` で作成されたものと想定されています。
+<2> このクライアントは操作を実行して、HTTP コールの情報が格納された `Response` オブジェクトを取得します。
+<3> この例では、状況コードの 401 (`unauthorize`) はトークンの期限切れであると想定しています。
+<4> `AccessTokenExpiredException` がスローされます。
+
+SDK がこの例外を検出すると、自動的に更新ダンスを実行して、新しいアクセストークンで操作を再試行します。
+
+実際には、アクセストークンの期限切れの通知方法は API ごとに異なります。例外をスローする API もありますし、カスタムメッセージを出力する API もあります。リモート API を調べて、最適な対応を決定してください。

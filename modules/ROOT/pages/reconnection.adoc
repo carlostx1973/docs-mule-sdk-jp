@@ -1,0 +1,180 @@
+= コネクタの再接続
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: Anypoint, studio, 再接続戦略, 再接続戦略, 再試行ポリシー, 再試行
+
+SDK と Mule には標準の再接続戦略が用意されており、接続に使用するすべてのコネクタに適用されます。このサポートは汎用であるため、再接続ルールの設定と調整はどのコネクタでも同じです。
+
+== SDK が再接続のトリガのタイミングを知る方法
+
+SDK と Mule は再接続エンジンを備えていますが、再接続を行うとき、接続が切断されたとき、新しい接続が必要なときは、コネクタから通知されます。
+
+== 接続エラーとは?
+
+既存の接続が機能しなくなり、コネクタがビジネスロジックの実行を継続できなくなると、再接続メカニズムによって新しい有効な接続を確立できます。これらのエラーは、接続エラーと呼ばれます。
+
+エラーが接続エラーなのか他のエラーなのかを見極めることが非常に重要です。いくつかの例を示します。
+
+=== 接続エラーの例
+
+* Connection Timeout (接続タイムアウト)
+* ログイン情報が無効
+* トークンの期限切れ
+
+=== 接続エラー以外のエラーの例
+
+* HTTP 要求時に必要な HTTP クエリパラメータがない
+* ファイルのコピー時にディレクトリが存在しない
+* スラックに null メッセージをパブリッシュした
+* データベースクエリの実行時の構文エラー
+
+== 再接続のトリガ方法
+
+再接続において最も重要なことは、接続エラーが発生して再接続が必要な場合に、通知が正しく行えるということです。エラーの通知方法は、エラーが検出されたコンポーネントによって異なります。
+
+以下のセクションでは、コネクタの各コンポーネントでの再接続のトリガ方法について説明します。
+
+=== 接続プロバイダ
+
+==== 接続の作成
+
+接続プロバイダは、接続に最初に関わります。接続プロバイダが接続を作成できない理由にはいくつかありますが、接続エラーが発生した瞬間に接続プロバイダは接続エラーを通知して、再接続をトリガすることができます。つまり、接続を再び作成しようと試みます。
+
+//TODO: UNCLEAR
+`connect()` メソッドが接続を作成しようとしたときにエラーを検出して再接続が必要になった場合は、<<connection-exception,`ConnectionException()`>> をスローします。
+
+[source,java,linenums]
+----
+@Override
+public Connection connect() throws ConnectionException {
+  Connection connection;
+  try {
+    connection = new Connection();
+  } catch (Exception e) {
+    throw new ConnectionException("Error occurred trying to connect.", e);
+  }
+  return connection;
+}
+----
+
+==== 接続の検証
+
+接続がまだ有効であることを確認するため、SDK は稼働中の接続をいつでも取得して、接続を作成した接続プロバイダに対して検証できます。
+
+接続を検証するため、`validate(Connection)` が呼び出され、接続プロバイダが接続が有効かどうかをチェックします。
+接続プロバイダが接続が有効でなくなっていることを検出すると、<<connections#connection-validation-result,接続検証結果>>にエラー結果の `ConnectionValidationResult.failure(Cause, Exception)` を格納します。これによって現在の接続が切断されて無効化され、可能であれば再び作成されます。
+
+.例: 接続の検証
+[source,java,linenums]
+----
+@Override
+public ConnectionValidationResult validate(Connection connection) {
+  if(connection.isValid()){
+    return ConnectionValidationResult.success();
+  } else {
+    return ConnectionValidationResult.failure("Connection Problem", new RuntimeException());
+  }
+}
+----
+
+=== 操作
+
+操作が失敗する理由は、無効なパラメータ値や予期せぬエラーなどさまざまです。また、接続エラーに起因する場合もあります。エラーの原因が接続エラーであることを示すため、<<connection-exception,`ConnectionException()`>> がスローされます。この例外により、*再接続がトリガされ、操作が再び実行されます*。
+
+==== 操作の例
+.例
+[source,java,linenums]
+----
+public void operationTriggersReconnection(@Connection Connection connection, boolean connectionException){
+    if(connectionException){
+      throw new ConnectionException("Connection Error"); //<1>
+    } else {
+      throw new RuntimeException(); //<2>
+    }
+}
+----
+<1> `ConnectionException` がスローされると、使用されていた接続が無効化されます。
+接続プロバイダは新しい接続を作成しようと試み、接続が可能になると、操作が再び実行されます。
+<2> 他の例外もスローされている場合は、エラーはビジネスエラーと見なされ、接続は無効化されず、操作も再実行されません。
+
+=== ソース
+
+<<sources-config-connection#obtaining-a-connection,ソースは自分自身の接続を作成する責任を持つ>>ため、ソースによる再接続のトリガは操作とは少し異なります。正常に作成された接続がその後切断されると、ソースは接続エラーとして <<connection-exception,`ConnectionException(Exception, Connection)`>> をスローします。
+
+//TODO: UNCLEAR SECOND SENTENCE
+ソースには<<starting-source,起動中>>と<<running-source,実行中>>の 2 つのフェーズがあります。それぞれの段階では、接続エラーの通知方法が異なります。
+
+WARNING: 接続エラーを `ConnectionException` で通知しないと、再接続メカニズムが正しく機能しません。
+
+[[starting-source]]
+==== 起動中のソース
+
+ソースの起動中、`onStart()` メソッドの実行中に接続エラーが検出されて通知する必要がある場合は、操作と同じ方法で、`ConnectionException()` をスローする必要があります。
+接続例外がスローされると、ソースが停止し、再接続が試行され、再びソースが起動されます。
+
+.例
+[source,java,linenums]
+----
+@Override
+public void onStart(SourceCallback<String, Void> sourceCallback) throws MuleException {
+Connection connection = connectionProvider.connect();
+  try {
+    connection.startStreaming();
+  } catch(Exception e){
+    throw new ConnectionException(e, connection); //<1>
+  }
+}
+----
+
+[[running-source]]
+==== 実行中のソース
+
+`onStart()` メソッドが正常に完了してソースが正常に起動すると、残りのロジックが他のスレッドで実行されます。
+
+他のスレッドでの実行中は、SDK は `throw` ステートメントで通知されたエラーを検出することはできません。そのため、`onConnectionException()` を使用して `SourceCallback` でエラーを通知する必要があります。
+
+.例
+[source,java,linenums]
+----
+@Connection
+ConnectionProvider<Connection> connectionProvider;
+
+@Inject
+SchedulerService schedulerService;
+
+private Scheduler scheduler;
+
+@Override
+public void onStart(SourceCallback<Connection, Void> sourceCallback) throws MuleException {
+  Connection connection = connectionProvider.connect();
+    scheduler = schedulerService.ioScheduler(); //<1>
+    scheduler.execute(() -> {
+      while (true) {
+        try {
+          connection.receiveMessage();
+        } catch (Exception e){
+          sourceCallback.onConnectionException(new ConnectionException(e, connection)); //<2>
+        }
+      }
+    });
+}
+----
+<1> 新しいスレッドでソースロジックを実行するためのスケジューラを作成します。
+<2> 置換すべきエラー接続を含む `ConnectionException` を `SourceCallback` に渡します。
+
+[[connection-exception]]
+== 接続例外
+
+`ConnectionException` は以下のプロパティで構築できます。
+
+* *Message*: 現在のエラーを説明した文字列です。
+* *Cause*: 指定した場合、Throwable は現在のエラーの原因を示します。
+* xref:errors.adoc[*ErrorType*]: 指定した場合、ErrorType は現在のエラーを説明します。
+* *Connection*: 指定した場合、Object は接続エラーを表します。切断と破棄に使用されます。
+
+=== 関連情報
+
+* xref:sources-config-connection.adoc[ソースの設定と接続]
+* xref:sources-lifecycle.adoc[ソースライフサイクル]
+* xref:errors.adoc[モジュールのエラー]

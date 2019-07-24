@@ -1,0 +1,97 @@
+= 非ブロック操作
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, 操作, 非, ブロック, 非ブロック
+
+Mule 4 実行エンジンは、リアクティブストリームをベースとしています。つまり、非ブロック操作は最上位でサポートされます。デフォルトではすべての操作はブロック操作となります。すでにお気づきかも知れませんが、<<operations#,これまで>>見てきた操作例のセマンティクスはすべて継承的にブロック型となり、Runtime がメソッドを呼び出して応答で値を取得します。これは、I/O 負荷よりも CPU 負荷の大きい操作や、JDBC (データベースコネクタを駆動する API) など、非ブロック型としてはコンシュームできない API をコンシュームする操作では問題ありません。
+
+ブロック型をサポートするプロトコルとしては HTTP などがあります。ゲートウェイプロキシの拡張性を高めるためには、非ブロック HTTP 要求を実行できることが鍵となります。これによって、REST API をコンシュームするすべてのコネクタも恩恵を受けます。
+
+次の簡素化された HTTP 要求の例は、SDK でどのように非ブロック操作を開発できるかを示しています。
+
+[source,java,linenums]
+----
+public void request(String url, @Connection HttpClient client, @Content String body, // <1>
+    CompletionCallback<InputStream, HttpAttributes> callback ) { // <2>
+ client.send(url, body, new HttpResponseCallback() {
+   void onResponse(HttpResponse response) {
+     callback.success(Result.<InputStream, HttpAttributes>builder() // <3>
+                          .output(response.getBody())
+                          .attributes(toAttributes(response))
+                          .build());
+   }
+
+   void onError(Exception e) {
+     callback.error(e); // <4>
+   }
+ });
+}
+----
+
+<1> ブロック操作とは異なり、戻り値のデータ型はメソッドの戻り値のデータ型では指定されません。非ブロック操作は、常に void メソッドで指定する必要があります。
+<2> `CompletionCallback` 型の引数を持つ操作は非ブロック型となります。このインターフェースは、汎用型を使用して操作の戻り値のデータ型を指定しています。最初の汎用型は出力ペイロードの型で、2 番目は出力属性の型です。これらの汎用型は必須です。
+<3> 戻り値は `CompletionCallback` の `success(Result)` メソッドを介して渡されます。`Result` オブジェクトの詳細は、<<_result,Result>> オブジェクトについての説明を参照してください。
+<4> 非ブロック操作は、例外をスローすることはできません。すべてのエラーは、コールバックの `error()` メソッドでチャネルしてください。
+
+[TIP]
+この例では、`CompletionCallback` が `HttpResponseCallback` の間にコンシュームされています。2 場目のコールバックは、非同期応答をサポートする `HttpClient` によって提供されています。前述のように、非ブロック操作を実行するためには、それに対応した API をコンシュームする必要があります。
+
+このコードの結果は非ブロック操作であり、`InputStream` をペイロードとして、`HttpAttributes` オブジェクトをメッセージ属性として返します。
+
+== void 操作
+
+void 非ブロック操作を実行することも可能です。ユースケースとしては、ファイルへの書き込みなど、何も返さない I/O 操作があります。
+
+[source,java,linenums]
+----
+public void write(String path, @Content byte[] bytes, CompletionCallback<Void, Void> callback) {
+ writeAsync(result -> callback.success());
+}
+----
+
+この例からわかるように、Java の `Void` 型を使用して操作が void であることを示すことができます。
+
+=== 注意点
+
+次のように (属性​*ではなく*) ペイロードを操作で設定することもできます。
+
+[source,java,linenums]
+----
+public void foo(CompletionCallback<String, Void> callback) {
+ ...
+}
+----
+
+== 実行種別
+
+上述のように Mule 4 はリアクティブ実行エンジンを備えています。Mule 3.x では各フローが独自のスレッドプールや SEDA キューなどを持っていましたが、Mule 4 Runtime はいくつかのグローバル実行エンジンによってすべてのタスクを実行しています。
+
+タスクを正しくスケジュールするには、各操作がどのような処理を実行するのかを Runtime が知っておく必要があります。以下の処理種別があります。
+
+* CPU_INTENSIVE: 複雑で時間を要する計算や変換など、負荷の大きな処理です。SDK が `CPU_INTENSIVE` 種別を推定することはありません。<<specify_execution_type,「実行種別の指定」>>を参照してください。
+* CPU_LITE: メッセージの受け渡し、絞り込み、ルーティング、非ブロック I/O など、スレッドをブロックしたり CPU に負荷をかけたりしない処理です。
+* BLOCKING: ブロック I/O 操作、`Thread.sleep(long)`、`Lock.lock()` など、処理中に現在のスレッドをブロックする処理です。この種別には `Thread.sleep` が含まれますが、これを使用することは避けた方がよいでしょう。
+
+=== 実行種別の自動推定
+
+SDK は、以下のルールに従って最適な実行種別を推定するため、実行種別を明示的に指定する必要はありません。
+
+* 接続とスレッドのブロックを必要とする操作: `BLOCKING`
+* 接続を必要とするがスレッドをブロックしない操作: `CPU_LITE`
+* 上記以外: `CPU_LITE`
+
+操作の実行種別が推定された種別とは異なる場合は、正しい種別を指定してください。そうしないと、モジュールを使用するアプリケーションのパフォーマンスが低下します。
+
+[[specify_execution_type]]
+=== 実行種別の指定
+
+操作の実行種別は、`@Execution` アノテーションで手動で指定できます。次に例を示します。
+
+[source,java,linenums]
+----
+@Execution(CPU_INTENSIVE)
+public void computeFlightPlan() {
+  ...
+}
+----

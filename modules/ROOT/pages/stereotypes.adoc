@@ -1,0 +1,201 @@
+= ステレオタイプ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: ステレオタイプ, mule, sdk, 種別
+
+ステレオタイプはコンポーネントを緩やかに分類する方法です。コンポーネントにステレオタイプを割り当てると、コンポーネントは特定の戻り値のデータ型や構造を持つものではなくなります。代わりに、同じステレオタイプの他のコンポーネントと共通するものがコンポーネントに保持されていることが示されます。ステレオタイプを割り当てて、パラメータがそのステレオタイプに属するようにすることができます。
+
+== Stereotype アノテーション
+
+コンポーネントにステレオタイプを割り当てるには、`@Stereotype` アノテーションを `StereotypeDefinition` クラスと共に使用する必要があります。
+
+`@Stereotype` アノテーションは次のレベルで使用できます。
+
+* メソッドレベル。特定の操作に影響します。
+* クラスレベル。このクラスで定義されているすべての操作にステレオタイプを割り当てます。
+
+コンポーネントは 1 つのステレオタイプにのみ属することができます。つまり、コンポーネントで `@Stereotype` アノテーションが使用されている場合、そのコンポーネントに他のアノテーションでステレオタイプを割り当てることはできません。
+
+たとえば、操作でメッセージを変更せず、何らかの検証のみを実行することを示すために使用する `@Validator` アノテーションでは、ステレオタイプが操作に自動的に割り当てられます。
+
+次の例では、操作で `@Stereotype` を使用しています。
+
+[source,java,linenums]
+----
+@Stereotype(JenkinsStereotypeDefinition.class)
+public final class CommonJenkinsOperations {
+
+
+  public void triggerBuild(String name, Map<String,String> arguments)
+      throws Exception {
+      // ...
+  }
+
+  public void createJobs(String name, Map<String,String> arguments)
+      throws Exception {
+      // ...
+  }
+
+  public Result<JenkinsInformation , JenkinsAttributes> ActiveJobs()
+      throws Exception {
+      // ...
+  }
+}
+
+----
+
+//TODO: could "belong to" replace "be of"?
+この場合、クラス `CommonJenkinsOperations` のすべての操作が、`JenkinsStereotypeDefinition` で定義されたステレオタイプになります。
+
+== StereotypeDefinition
+
+このインターフェースは、ステレオタイプ名、名前空間、親を提供します。デフォルトでは、名前空間は拡張機能の名前空間に割り当てられます。
+
+ステレオタイプには階層があります。指定しない限り、デフォルトでは、ステレオタイプは別のステレオタイプから拡張されません。
+
+次の例は、`StereotypeDefinition` の定義方法を示しています。
+
+[source,java,linenums]
+----
+public final class JenkinsStereotypeDefinition extends MuleStereotypeDefinition { // <1>
+
+  @Override
+  public String getName() {
+    return "JENKINS_OPERATION";
+  }
+
+  @Override
+  public Optional<StereotypeDefinition> getParent() {
+    return Optional.of(PROCESSOR_DEFINITION); <2>
+  }
+
+}
+----
+
+<1> `JenkinsStereotypeDefinition` クラスは、`PROCESSOR_DEFINITION` などの複数の `StereotypeDefinition` を認識している `StereotypeDefinition` から拡張されます。
+<2> `MuleStereotypeDefinition` でこの `StereotypeDefinition` の親として定義されている `StereotypeDefinition` である `PROCESSOR_DEFINITION` を選択します。
+
+== パラメータでの AllowedStereotypes アノテーション
+
+このアノテーションは、パラメータで受け入れられる各 `StereotypeDefinition` を識別します。このアノテーションの値は、`StereotypeDefinition` の単一値または配列です。これは、種別 `Chain` または `Route` のパラメータにのみ割り当てることができます。
+
+次の例では、特定のステレオタイプをパラメータとして適用します。
+
+[source,java,linenums]
+----
+public class JenkinsScope {
+
+  private static final Logger logger = getLogger(JenkinsScope.class);
+
+  public void jenkinsGroupExecution(@AllowedStereotypes(JenkinsStereotypeDefinition.class) Chain operations,
+                  CompletionCallback<Void, Void> callback)
+      throws Exception {
+
+    LOGGER.debug("Invoking Jenkins Operations.")
+    operations.process(
+      result -> {
+        // Log information about the execution of the operations
+        callback.success(result);
+      },
+      (error, previous) -> {
+        LOGGER.error(error.getMessage());
+        callback.error(error);
+    });
+
+  }
+
+}
+----
+
+受信する `Chain` には、`JenkinsStereotypeDefinition` クラスで定義されたステレオタイプを持つ操作のみを含めることができます。
+
+== 設定リファレンス
+
+各設定には自動的に割り当てられた一意のステレオタイプがあります。このステレオタイプには次の特性があります。
+
+* 名前と名前空間の両方が大文字で構成され、単語はアンダースコアで区切られます。
+
+* 名前空間は拡張機能の名前空間です。たとえば、HTTP コネクタでは「HTTP」、JMS コネクタでは「JMS」になります。
+
+* 名前は設定の名前です。たとえば、「requestConfig」設定のステレオタイプ名は「REQUEST_CONFIG」になります。
+
+このデフォルトのステレオタイプは、`@Stereotype` アノテーションを使用して上書きできます。
+
+このステレオタイプを使用すると、`@ConfigReference` アノテーションを使用して、`String` パラメータを設定の特定の種別の名前に制限できます。このアノテーションでは、設定のステレオタイプの名前と名前空間が必要です。
+
+この機能の使用例を次に示します。
+
+HttpService を使用する拡張機能を開発します。これを使用するのに HttpRequesterConfig が必要です。これで、拡張クライアントを使用すると、HttpService は実際の設定を使用します。
+
+たとえば、HTTP コネクタでこの `HttpRequesterConfig` を宣言したとします。
+
+[source,java,linenums]
+----
+@Configuration(name = "requestConfig")
+@ConnectionProviders(HttpRequesterProvider.class)
+@Operations({HttpRequestOperations.class})
+public class HttpRequesterConfig {
+  // Parameters and getters for the Configuration
+}
+----
+
+Web サービスコンシューマコネクタは次のように定義されています。
+
+[source,java,linenums]
+----
+@ErrorTypes(SoapErrors.class)
+@Operations(ConsumeOperation.class)
+@ConnectionProviders(SoapClientConnectionProvider.class) // <1>
+@SubTypeMapping(baseType = CustomTransportConfiguration.class, subTypes = CustomHttpTransportConfiguration.class)
+@Extension(name = "Web Service Consumer")
+@Xml(prefix = "wsc")
+public class WebServiceConsumer {
+}
+----
+<1> この ConnectionProvider は、`@ConfigReference` アノテーションを使用するパラメータを保持します。このコネクタでは設定が宣言されていないため、デフォルトの `config` が使用されます。
+
+次は、ConnectionProvider の宣言の一部を示しています。
+
+[source,java,linenums]
+----
+public class SoapClientConnectionProvider implements CachedConnectionProvider<SoapClientWrapper> {
+  // ...
+  @Inject
+  private HttpService httpService;
+  // ...
+  @Placement(tab = "Transport")
+  @Parameter
+  @Optional
+  @Expression(NOT_SUPPORTED)
+  @DisplayName("Transport Configuration")
+  private CustomTransportConfiguration customTransportConfiguration;
+  // ...
+}
+----
+
+次は、`@ConfigReference` アノテーションが使用されている場所を示しています。
+
+[source,java,linenums]
+----
+@Alias("http-transport-configuration")
+public class CustomHttpTransportConfiguration implements CustomTransportConfiguration {
+
+  @ConfigReference(namespace = "HTTP", name = "REQUEST_CONFIG") // <1>
+  @Parameter
+  private String requesterConfig;
+
+  @Override
+  public MessageDispatcher buildDispatcher(ExtensionsClient client) {
+    return new HttpConfigBasedMessageDispatcher(requesterConfig, client); // <2>
+  }
+
+  @Override
+  public TransportResourceLocator resourceLocator(ExtensionsClient client) {
+    return new HttpResourceLocator(requesterConfig, client); // <2>
+  }
+}
+----
+
+<1> 文字列パラメータ `requesterConfig` は `HttpRequesterConfig` の名前の値を使用する必要があります。
+<2> 設定の名前は `ExtensionsClient` と共に使用されます。

@@ -1,0 +1,159 @@
+= 特殊なパラメータ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, 操作, ソース, MIME, MIME タイプ, エンコード, TypedValue, パラメータリゾルバ, リテラル
+
+== TypedValue<Type>
+
+<<operations#,操作>>および<<sources#,ソース>>の一般的なユースケースは、パラメータの値と共にメディア種別情報を受け取ることです。次に例を示します。
+
+.例: 操作
+[source,java,linenums]
+----
+public void receiveContent(InputStream content) {
+  // operation logic
+}
+----
+
+以下の Mule アプリケーションの例では `JSON` 値を受け取りますが、上記の操作のコードでは `content` パラメータの MIME タイプまたはエンコードが指定されていません。
+
+.例: Mule アプリケーション
+[source,xml,linenums]
+----
+<flow name="mediaTypeFlow">
+    <set-payload value="#[output application/json --- { key : 'value'}]">
+    <cool-extension:receive-content content="#[payload]" />
+</flow>
+----
+
+メディア種別情報 (MIME タイプやエンコード) を取得するには、パラメータ種別を `TypedValue<OriginalType>` にラップする必要があります。
+
+次の例では、`TypedValue` パラメータと共に上記と同じ Mule アプリケーションを使用します。
+
+.メディア種別フレンドリーなパラメータ
+[source,java,linenums]
+----
+public void receiveContent(TypedValue<InputStream> content) {
+    DataType dataType = content.getDataType();
+    MediaType mediaType = dataType.getMediaType();
+    boolean streamType = dataType.isStreamType();
+    Long lenght = content.getLength().orElse(-1L);
+
+    InputStream theContent = content.value(); // The proper value
+
+    System.out.println(mediaType);  // application/json; UTF-8
+    System.out.println(streamType); // true
+    System.out.println(lenght);     // 18
+}
+----
+
+これに連動する他のシステムと通信したり、パラメータ値を処理できるようにしたりするために MIME タイプ情報が必要なユースケースでは、`TypedValue` パラメータを使用することを強くお勧めします。
+
+[[literal]]
+== Literal<Type>
+
+`Literal<Type>` パラメータでは、Mule アプリケーションに書き込まれたときのままの値を取得できます。つまり、エンドユーザが `\#[attributes.queryParams]` のような式を記述する場合、操作は式 `#[attributes.queryParams]` が含まれる文字列を取得できます。これにより、Mule Runtime によって式が解決されたり、変換が適用されたりすることを回避できます。これは、サードパーティで評価する必要がある場合に役立ちます。
+
+設定および接続プロバイダの場合、リテラルパラメータを使用すると、<<static-dynamic-configs#,設定を動的ではなく静的な設定として処理できます>>。これは、リテラルが式の場合でもリテラル値は定数になるためです。Runtime で値が自動的に評価されることはなく、拡張機能で静的値として処理されます。
+
+値が式として入力された場合、クラスでは式が提供されますが、評価する方法は提供されません。その<<parameter-resolver,パラメータリゾルバ>>を使用する必要があります。
+
+[source,xml,linenums]
+----
+<flow name="literalFlow">
+    <cool-extension:literal-value content="#[payload]" />
+</flow>
+----
+
+.リテラルパラメータ
+[source,java,linenums]
+----
+public void literalValue(Literal<InputStream> literal) {
+    System.out.println(literal.getLiteralValue().get());  // #[payload]
+    System.out.println(literal.getType()); // java.io.InputStream
+}
+----
+
+IMPORTANT: 汎用型を考慮する必要があります。このインターフェースの使用によって派生するパラメータの型は、汎用型に応じて設定されます。汎用型は省略できません。
+
+[[parameter-resolver]]
+== ParameterResolver<Type>
+
+`ParameterResolver<Type>` では、式の解決を延期できます。これは、値として式を取るパラメータが必要でない場合に役立ちます。そのような式を自動的に解決する代わりにコネクタのコード内でオンデマンドで解決してパフォーマンスを改善できます。
+
+<<literal,Literal<Type>>> パラメータに対して、式が含まれる `ParameterResolver<Type>` パラメータは、値が解決されるかどうかに関係なく、常に動的パラメータとして処理されます。
+
+=== 式の解決
+
+`ParameterResolver<Type>` を受け取って式の値を解決する場合、`resolve()` メソッドをコールして、式の結果を返す必要があります。
+
+WARNING: 式の解決は、必要になるまで延期されるため、`resolve()` は無効な式のために失敗する可能性があります。
+
+=== 式の値の取得
+
+`ParameterResolver<Type>` パラメータは、パラメータで使用される式を伝えることができます。パラメータは式を使用しても、使用しなくても設定できるため、`Optional<String>` が返されます。式を使用して設定されていない場合、`Optional.empty()` が返されます。
+
+==== 例: 式を使用する
+
+.式を使用した設定
+[source,xml,linenums]
+----
+<flow name="expressionParameterResolver">
+  <cool-extension:add-products products="#[{Potatoes : 2 , Oranges : 4}]"/>
+</flow>
+----
+
+.例: ソース
+[source,java,linenums]
+----
+public void addProducts(ParameterResolver<Map<String,Integer>> products) {
+    System.out.println(map.getExpression().get());  // #[{Potatoes : 2 , Oranges : 4}]
+    System.out.println(map.resolve()); // {Potatoes=2, Oranges=4}
+}
+----
+
+==== 例: 式を使用しない
+
+.式を使用しない設定
+[source,xml,linenums]
+----
+<flow name="noExpressionParameterResolver">
+    <cool-extension:add-products>
+        <cool-extension:products>
+          <cool-extension:product key="Potatoes" value="2"/>
+          <cool-extension:product key="Oranges" value="4"/>
+        </cool-extension:product>
+    </cool-extensions:add-products>
+</flow>
+----
+
+[source,java,linenums]
+----
+public void addProducts(ParameterResolver<Map<String,Integer>> products) {
+    System.out.println(map.getExpression().isPresent());  // false
+    System.out.println(map.resolve()); // {Potatoes=2, Oranges=4}
+}
+----
+
+== 型の積み上げ
+
+上記のパラメータを同時に複数使用することが必要になる場合があります。たとえば、特定の値のメディア種別を受け取り、その解決を延期する場合などです。
+
+これを行うには、必要な機能の汎用型を積み上げます。
+
+[source,xml,linenums]
+----
+<flow name="stackedTypes">
+  <cool-extension:add-products products="#[output application/json --- {Potatoes : 2 , Oranges : 4}]"/>
+</flow>
+----
+
+[source,java,linenums]
+----
+public void addProducts(ParameterResolver<TypedValue<InputStream>> products) {
+    System.out.println(map.getExpression().get());  // #[output application/json --- {Potatoes : 2 , Oranges : 4}]
+    TypedValue<InputStream> content = map.resolve();
+    System.out.println(content.getValue()); // {"Potatoes" : "2", "Oranges" : "4"}
+}
+----

@@ -1,0 +1,151 @@
+= モジュール接続フレームワーク
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, 接続, 接続性, 管理, プーリング, キャッシュ, プロバイダ, connection-provider
+
+接続モジュール (コネクタ) は、おそらく最も一般的なモジュールです。
+
+接続フレームワークは、`ConnectionProvider` の概念から始まります。
+これは、その接続を管理する懸念を取り除きながら、ランタイムが接続を適切に処理できるように、接続の作成、切断、および説明の役割を果たすインターフェースです。
+
+== 接続プロバイダの宣言
+
+新しい `ConnectionProvider` を宣言するには、`ConnectionProvider` インターフェースを実装する新しいクラスを作成する必要があります。`ConnectionProvider` インターフェースは、`ConnectionProvider` が処理するインスタンスのクラスを示す 1 つの型引数を受け取る型付けされたインターフェースです。
+
+この例は、`ConnectionProvider` インターフェースを実装する `FooConnectionProvider` クラスを宣言します。
+
+[source,java,linenums]
+----
+public class FooConnectionProvider implements ConnectionProvider<FooConnection> {
+
+  @Parameter
+  private String password;
+
+  public FooConnection connect() throws ConnectionException {
+    return new FooConnection(password);
+  }
+
+  public void disconnect(FooConnection connection) {
+    connection.invalidate();
+  }
+
+  public ConnectionValidationResult validate(FooConnection connection) {
+    return connection.isValid() ?
+      ConnectionValidationResult.success() :
+      ConnectionValidationResult.failure("Connection is not valid", new InvalidConnectionException());
+  }
+}
+----
+
+[NOTE]
+定義された各 `ConnectionProvider` は、インスタンス化可能で公開されており、デフォルトのコンストラクタがある必要があります。
+
+接続へのアクセスを必要とする他のコンポーネント (操作やソースなど) は、`FooConnection` クラスのインスタンスを介して接続へのアクセスを取得します。
+
+上記の例には、`@Parameter` とメソッド `connect()`、`disconnect()`、および `validate()` が含まれます。次のセクションでそれぞれについて説明します。
+
+=== 接続プロバイダパラメータ
+
+その他の `Module` 要素と同様に、`ConnectionProvider` には `@Parameters` を使用できます。
+各 `ConnectionProvider` の `@Parameters` は、`connect()` メソッドで、実際の接続をインスタンス化するために必要な設定可能な要素である必要があります。
+
+[WARNING]
+複数の操作で必要な一般的な `@Parameters` は、`ConnectionProvider` には​*含まれていない*​必要があります。それは<<configs#,設定>> `@Parameter` で一般的なケースです。<<parameters#,「@Parameter」セクション>>を参照してください。
+
+[[_connections_connect]]
+=== Connect
+
+`connect()` メソッドは、設定されたすべてのパラメータを使用して実際の接続をインスタンス化します。返される接続はすぐに使用可能であると期待されることを知ることが​*非常に重要*​です。
+
+返される​*接続*​は、インターフェースやコントラクトを実装する必要はありません。ソケット接続を参照するとは限りません。単なるクライアントやそれと同様の何かである可能性があります。
+
+=== Disconnect
+
+`disconnect(Connection)` メソッドは、ライブ接続を受信して破棄し、割り当てられたすべてのリソースを解放します。
+
+=== Validate
+
+<<_connections_connect,上記>>のように、`ConnectionProvider` の `connect()` メソッドは有効で完全に機能する接続を返す​*必要があります*。接続はアイドル状態中に古くなる可能性があるため、`ConnectionProvider` には `validate(Connection)` メソッドが用意されています。このメソッドは、使用する前に接続を確認するために呼び出されます。
+
+検証に失敗した場合、接続は無効になり、新しい接続が取得されます。
+
+==== 接続検証結果
+
+`validate(Connection)` メソッドは、`ConnectionValidationResult` 型のオブジェクトを返します。これは `ConnectionValidationResult.success()` と `ConnectionValidationResult.failure()` の 2 つの型のいずれかになります。
+
+`failure()` が返されると、説明メッセージと失敗 `Exception` (接続が無効な理由を提供) が新しい `failure()` に提供されます。必要に応じて、<<errors#,エラー処理>>機能を追加するために `ErrorType` を指定できます。
+
+* `failure(String, Exception)`
+* `failure(String, ErrorType, Exception)`
+
+== 接続プロバイダの追加
+
+各 `ConnectionProvider` は、0、1 つ、または複数の `ConnectionProvider` を持つことができる接続にバインドされます。
+
+`ConnectionProvider` の実装をモジュール設定に追加するには、`@ConnectionProviders` アノテーションを使用する必要があります。このアノテーションは、`Module` が定義する各 `ConnectionProvider` を宣言します。`@Extension` または `@Configuration` レベルで使用できます。
+
+拡張に複数の `ConnectionProvider` が含まれる場合、`@Alias` を使用してそれぞれに意味のある名前を付ける必要があります。慣例により、その接続プロバイダの名前は指定された名前に ``-connection` サフィックスが追加されます。
+
+`@Extension` レベルで宣言された `ConnectionProvider` の例:
+
+[source,java,linenums]
+----
+@Extension(name="foo")
+@Operations(Operations.class)
+@ConnectionProviders(FooConnectionProvider.class)
+public class FooModule {
+
+  @Parameter
+  private String someParameter;
+
+  public String getSomeParameter() {
+    return someParameter;
+  }
+}
+----
+
+サンプル `FooConnectionProvider` を使用したこの設定の XML の例:
+
+[source,xml,linenums]
+----
+<foo:config name="a-foo-config" someParameter="value">
+    <foo:connection password="aVeryDificultPassword"/>
+</foo:config>
+----
+
+== 接続管理
+
+`ConnectionProvider` のいくつかの接続管理戦略を
+指定できます。
+
+=== プーリング戦略
+
+接続はプールされます。接続のキャッシュは維持されるため、将来の要求で必要になったときに再利用できます。
+
+これは、接続の作成にコストがかかる場合や、接続インスタンスへの同時アクセスがサポートされていない場合に役立ちます。
+
+このプーリング戦略では、プーリングプロファイル設定が自動的に接続に追加されます。次のリンクを参照してください。
+
+プーリング接続管理を有効にするには、`PoolingConnectionProvider` インターフェースを実装します。
+
+=== キャッシュ戦略
+
+設定インスタンスごとに、1 つの特定の設定が常に同じ接続を取得するように、接続が確立されてキャッシュされます。設定自体が停止されるまで、接続は維持されます。
+
+キャッシュ接続管理を有効にするには、`CachedConnectionProvider` インターフェースを実装します。
+
+=== 戦略なし
+
+ランタイムでは、プーリングの場合のような追加インフラストラクチャは追加されません。
+`ConnectionProvider` が接続処理動作の全体を提供します。
+ 接続が必要な操作は、接続が必要になるたびに `connect()` メソッドをコールし、操作が完了したら接続を破棄します。
+
+`ConnectionProvider` インターフェースを実装することは、戦略がないことを意味します。
+
+== 接続の使用
+
+操作とソースでの接続の使用は大きく異なります。次を参照してください。
+
+* <<operations#_using_connections, 操作での接続の使用>>
+* <<sources-config-connection#, ソースでの接続の使用>>

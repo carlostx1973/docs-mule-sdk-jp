@@ -1,0 +1,148 @@
+= Mule SDK を使用したスコープの作成
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, スコープ, スコープ, コンポーネント
+
+スコープは<<operations#,操作>>と似ていますが、これらの実行には、他の子<<operations#,操作>>の実行が含まれます。つまり、スコープは基本的に 1 つの `Chain` コンポーネントおよび `CompletionCallback` と共に 1 つ以上の引数 (単純な<<parameters#, パラメータ>>) を受け取る操作です。
+
+`Chain` は、スコープ内で宣言し、抽象化して実行する子<<operations#,操作>>を表します。
+
+== スコープの宣言
+
+このデコレータの例では、スコープの基本構造がわかります。これには、実行される `Chain` と、スコープの実行が完了すると呼び出される `CompletionCallback` があります。すべてのスコープは<<non-blocking-operations#,非ブロック操作>>として宣言されます。
+
+[source,java,linenums]
+----
+@Extension(name = "Docs")
+@Operations(LogDecorator.class)
+public class DocsModule {
+
+}
+----
+
+[source,java,linenums]
+----
+public void logDecorator(Chain operations,
+                         CompletionCallback<Object, Object> callback) {
+
+  LOGGER.debug("Invoking child operations")
+  operations.process(
+    result -> {
+      LOGGER.debug(result.getOutput());
+      callback.success(result);
+    },
+    (error, previous) -> {
+      LOGGER.error(error.getMessage());
+      callback.error(error);
+    });
+}
+----
+
+もちろん、<<operations#,操作>>の `Chain` を受け取る場合、何らかの方法でそれらを実行する必要があります。それが `process(successCallback, errorCallback)` で実行される内容です。
+この例では、これを使用して、非ブロック形式で `Chain` を実行し、成功またはエラーの場合に結果をリスンします。ここでは、`Chain` の​_すべて_​の<<operations#,操作>>の実行が成功すると、その実行結果を使用して `successCallback` がコールされます。​_いずれかの_​子<<operations#,操作>>の実行中にエラーが発生すると、エラーと最後の成功結果の両方を引数として `errorCallback` がコールされます。
+
+Mule アプリケーションでスコープを使用する例を次に示します。
+
+[source,xml,linenums]
+----
+<flow name="logDecoratorSampleFlow">
+    <docs:log-decorator>
+        <http:request config-ref="config" path="/" method="GET"/>
+    </docs:log-decorator>
+</flow>
+----
+
+これにより、`LOGGER` の呼び出しでラップされた `http:request` 子操作が実行されます。
+他のスコープやルータが含まれるスコープ内で任意の数の<<operations#,操作>>を実行できます。
+
+
+== パラメータの追加
+
+スコープは、他の単純な `@Parameters` および `@ParameterGroups` を受け取ることができます。スコープは子要素として宣言される​_複雑な_​パラメータを受け取ることができないため、これらは​_単純_​です。たとえば、デコレータのログレベルをカスタマイズする場合、それをパラメータとして受け取ることができるようになります。
+
+[source,java,linenums]
+----
+public void logDecorator(@Optional(defaultValue="true") boolean debug,
+                         Chain operations,
+                         CompletionCallback<Object, Object> callback) {
+
+  if (debug){
+    LOGGER.debug("Invoking child operations")
+  }
+  operations.process(
+    result -> {
+      Object message = result.getOutput();
+      if (debug){
+        LOGGER.debug(message);
+      } else {
+        LOGGER.info(message);
+      }
+      callback.success(result);
+    },
+    (error, previous) -> {
+      LOGGER.error(error.getMessage());
+      callback.error(error);
+    });
+}
+----
+
+スコープの API の変更は最小限です。
+
+[source,xml,linenums]
+----
+<flow name="logDecoratorSampleFlow">
+    <docs:log-decorator debug="false">
+        <http:request config-ref="config" path="/" method="GET"/>
+    </docs:log-decorator>
+</flow>
+----
+
+デフォルトでは、コンテナスコープで受信したメッセージを使用して `Chain` が実行されますが、`process` メソッドの他の定義を使用すると、スコープのユーザは、`Chain` の実行に使用されるペイロードや属性をカスタマイズできます。
+
+== ステレオタイプの使用
+
+ステレオタイプを使用すると、`Chain` 内に存在できる<<operations#,操作>>を制限できます。これにより、その用途の一貫性を確保できます。特定のストレオタイプのある<<operations#,操作>>のみをスコープ内で宣言できます。
+
+[source,java,linenums]
+----
+public void assertAll(@AllowedStereotypes(AssertionStereotype.class) Chain assertions,
+                @Optional boolean failOnError,
+                CompletionCallback<Boolean, Void> callback) {
+  assertions.process(
+    result -> {
+      callback.success(Result.<Boolean, Void>builder().output(true).build());
+    },
+    (error, previous) -> {
+      if (failOnError){
+        callback.error(error);
+      } else {
+        callback.success(Result.<Boolean, Void>builder().output(false).build());
+      }
+    });
+}
+----
+
+[source,xml,linenums]
+----
+<flow name="logDecoratorSampleFlow">
+    <docs:assert-all>
+      <docs:not-null value="#[payload]">
+      <docs:not-empty-collection value="#[payload]">
+    </docs:assert-all>
+</flow>
+----
+
+== 設定と接続には非対応
+
+スコープには、<<operations#,操作>>とは異なる制限があります。定義上、スコープは特定の<<configs#,設定>>や<<connections#,接続>>に依存したり、それらを受け取ったりすることはできません。
+
+== 1 つの Chain のみ
+
+`Chain` コンポーネントはスコープの定義のキーであるため、1 つの `Chain` 引数​_のみ_​が含まれている​_必要_​があります。
+
+== 常に非ブロック
+
+すべてのスコープは、それらの結果を伝えるために `CompletionCallback` を受け取る `void` メソッドとして定義されている必要があります。つまり、すべてのスコープはデフォルトで非ブロックになります。
+
+xref:non-blocking-operations.adoc[「非ブロック操作」]を参照してください。

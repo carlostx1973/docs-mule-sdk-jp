@@ -1,0 +1,37 @@
+= Mule SDK
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk
+
+Java 用 Mule SDK または XML を使用して、Mule アプリケーションにインストールできる新しいモジュールを作成することで、Mule 4 Runtime を拡張できます。モジュールの例としては、HTTP などのコネクタや、検証モジュールなどのカスタム機能を備えたモジュールがあります。
+
+SDK は、以下の機能を持つ API を提供します。
+
+* 以前の DevKit と比べて Mule モジュールの開発をスピードアップする。
+* モジュールを Mule Runtime の内部から分離する。
+* Mule コンポーネントと他のモジュール (クラウドコネクタなど) との一貫性を保証する。
+
+高度で機能が豊富な Java Mule SDK と、アウトバウンド操作のみを提供し、再帰的なコールはサポートしないシンプルな XML SDK のどちらでも使用できます。
+
+== DevKit との違い
+
+Java 用 Mule SDK は、DevKit を Mule 4 でさらに発展させたツールです。Devkit の代わりとして、Mule Runtime を拡張するための正規の方法が提供されています。DevKit は、Mule 4 では使用できません。
+
+SDK はアノテーション付き Java クラスという同じ概念の上に成立していますが、内部の動作は異なります。
+
+* SDK はコードジェネレータではありません。構築されたモジュールには、生成されたコードは含まれません (XSD スキーマすら含まれません)。モジュールは、明確に定義された _Extensions API_ を通して Mule Runtime とのインタラクションを行います。ただし、API の詳細は SDK フレームワークが処理するため、これらについて学習する必要はありません。
+* SDK は DevKit より強力で、より多くの機能をサポートします。
+  ** トランザクション
+  ** Request-Response (要求-応答) メッセージソース
+  ** 動的設定
+  ** ルータ
+  ** 非ブロック操作
+  ** クラスローディング分離
+  ** 強化されたランタイムサービスとの相互運用性
+
+== 関連情報
+
+* xref:dmt.adoc[DevKit から SDK への移行ツール]
+* xref:getting-started.adoc[Java 用 Mule SDK]
+* xref:xml-sdk.adoc[XML SDK]

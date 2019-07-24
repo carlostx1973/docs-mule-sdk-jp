@@ -1,0 +1,84 @@
+= 出力 MediaType の適用
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+
+<<result-object#,`Result` オブジェクト>>により、出力の MIME タイプを設定できます。ただし、この設定は省略可能です (SDK 開発者には、MIME タイプの設定は求められていません)。
+
+一方で、操作の出力 MIME タイプが必須である次のようなケースもあります。
+
+* 操作が `String` を返す場合。
+* 操作が `InputStream` を返す場合。
+
+この制限は任意ではありません。Mule 4 は DataWeave を式言語として使用するため、ユーザはデータの形式を気にする必要はありません。気にする必要があるのは、構造のみです。ただし、DataWeave が Mule メッセージで伝達されるすべての値のメディア種別を判断できればよいのです。
+
+SDK は、DataWeave が自動的に必要な情報を得られるように作業の大半を処理しますが、操作で `String` などの汎用型が返された場合は、データが JSON なのか、XML なのか、あるいはプレーンテキスト形式なのかを知ることは不可能です。`InputStream` が返された場合も同様で、JSON、XML、または CSV ストリーム、あるいはバイナリ情報の可能性もあります。いずれのケースでも、開発者はデザイン時にこの情報を SDK に対して指定する必要があります。
+
+そのために `@MediaType` アノテーションが用意されています。`String` または `InputStream` を返すすべてのソースと操作は、MediaType を `*/*` に指定してある場合でも、このアノテーションを使用する必要があります。
+
+たとえば、顧客に関する情報を返す操作を開発しているとします。また、この操作は XML 形式で情報を返すものとします。この場合は、次のように定義できます。
+
+[source,java,linenums]
+----
+@MediaType(MediaType.APPLICATION_XML)
+public String getCustomerInfo(String customerId) {
+  return fetchCustomerXml(customerId);
+}
+----
+
+また、ビデオを MP4 形式で返すビデオストリーミングモジュールを開発している場合なら、次のようになります。
+
+[source,java,linenums]
+----
+@MediaType("video/mp4")
+public InputStream getVideo(String videoId) {
+  return getVideoStream(videoId);
+}
+----
+
+TIP: `@MediaType` アノテーションは、最も一般的なメディア種別に対して定数セットを定義しています。ただし、ビデオ種別の例に示されているように、必要なカスタムメディア種別を使用することもできます。
+
+== strict = false メディア種別
+
+上記の例では、操作は指定されている以外のメディア種別を返すことはできません。しかし、​_最も可能性の高い_​メディア種別しか分からない場合や、メディア種別を特定できない場合もあります。このようなケースに備えて、`@MediaType` アノテーションには `strict = false` オプションが用意されています。
+
+=== 可変メディア種別
+
+顧客情報を取得する操作の例に戻り、接続先のサービスがデフォルトでは XML を返し、さらに、異なる形式を使用するように特定のアカウントを設定することもできるとします。また、そのメディア種別を事前に知ることはできないとします。この場合は、次のように定義できます。
+
+[source,java,linenums]
+----
+@MediaType(value = MediaType.APPLICATION_XML, strict = false)
+public String getCustomerInfo(String customerId) {
+  return fetchCustomerXml(customerId);
+}
+----
+
+`strict` パラメータを `false` に設定すると、`outputMimeType` パラメータが自動的に操作に追加されます。このパラメータにより、モジュールのユーザは MIME タイプを手動で上書きできます。そのため、自分のアカウントを知っていて、JSON を使用するように設定されているユーザであれば、次のように指定できます。
+
+[source,xml]
+----
+<customers:get-customer-info customerId="999" outputMimeType="application/JSON" />
+----
+
+=== 不明なメディア種別
+
+HTTP 要求のケースを考えてみましょう。取得されるメディア種別はヒットするエンドポイントによって変わります。取得するメディア種別が不明であるため、`ANY` (`*/*`) を使用します。
+
+[source,java,linenums]
+----
+@MediaType(value =  "*/*", strict = false)
+public InputStream rquest(String path) {
+  return httpClient.request(path);
+}
+----
+
+ここでも、`strict = false` 属性によって、ユーザはエンドポイントに応じて MIME タイプを手動で設定できます。
+
+[source,xml]
+----
+<http:request path="/customer/999" outputMimeType="application/JSON" />
+----
+
+[TIP]
+自動的に追加される `outputMimeType` パラメータは省略可能であり、デフォルト値はありません。ユーザは、このパラメータを空白のままにしておけます。その場合、SDK はアノテーションで設定されているメディア種別を使用します。

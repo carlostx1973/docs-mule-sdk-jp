@@ -1,0 +1,186 @@
+= パラメータ UI のカスタマイズ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+
+SDK は、UI と UX の多くの側面をカスタマイズするためのアノテーションのセットを提供しています。
+
+== @DisplayName
+
+UI で使用する要素や項目のカスタム表示ラベルを指定します。
+
+== @Example
+
+パラメータで使用できる値の簡単な例を添えておくと便利な場合があります。
+
+[source,java,linenums]
+----
+@Parameter
+@Example("0.0.0.0")
+private String port;
+----
+
+このパラメータは次のように表示されます。
+
+image::example.png[例]
+
+== @Summary
+
+`@Summary` は、パラメータの目的の短い説明です。
+
+たとえば、この説明は Design Center でパラメータにカーソルを置くと表示される説明などに使用できます。
+
+[source,java,linenums]
+----
+@Parameter
+@Optional(defaultValue = "SECONDS")
+@Summary("Time unit to be used in the Connection Timeout")
+private TimeUnit connectionTimeoutUnit;
+----
+
+このパラメータは次のように表示されます。
+
+image::summary.png[Summary のツールチップ]
+
+== @Placement
+
+このアノテーションは、以下の設定を可能にします。
+
+* グループ内でパラメータが定義される相対的な順序。値は相対的に扱われ、順序 `10` の要素は順序 `25` の要素より上になります。
+
+* パラメータを視覚的にグループ化するタブ。この属性は、パラメータを表示するタブの名前を指定します。デフォルトは「General」で、名前は指定されません。同じタブに複数のパラメータや項目を表示するには、同じタブの値を指定してください。
+
+次の例では、`foo` と `bar` が `Advanced` という名前の同じタブにグループ化され、`foobar` はデフォルトタブの唯一のパラメータとなります。
+
+[source,java,linenums]
+----
+@Parameter
+@Placement(order = 1, tab="Advanced")
+private String foo;
+
+@Parameter
+@Placement(order = 2, tab="Advanced")
+private String bar;
+
+@Parameter
+private String foobar;
+----
+
+`foo` パラメータと `bar` パラメータは新しい `"Advanced"` タブに次のように表示されます。
+
+image::placement-tab.png[タブ]
+
+== @Text
+
+パラメータが UI で複数行の入力をサポートするように指示します。このアノテーションは DSL にも影響し、アノテーション付きのパラメータを、テキストを要素のコンテンツとした子要素とします。
+
+このアノテーションは、`String` 型のパラメータでのみ使用できます。
+
+.例
+[source,java,linenums]
+----
+@Parameter
+@Optional
+@Text
+@DisplayName("SQL Query Text")
+private String sql;
+----
+
+Design Center では `@Text` は次のように表示されます。
+
+image::text.png[テキストの複数行入力]
+
+`@Text` は、パラメータを含む要素の DSL にも影響します。このアノテーションを使用すると、`CDATA` コンテンツを受け入れる子要素が作成されます。たとえば、次のような操作があるとします。
+
+[source,java,linenums]
+----
+public void execute(String message) { ... }
+----
+
+この操作の DSL は次のようになります。
+
+[source,xml,linenums]
+----
+<example:execute message="This is a pretty inline message!"/>
+----
+
+次の例では、`message` 操作に `@Text` アノテーションを付加しています。
+
+[source,java,linenums]
+----
+public void execute(@Text String message) { ... }
+----
+
+対応する DSL は次のようになります。
+
+[source,xml,linenums]
+----
+<example:execute>
+    <example:message>
+       <![CDATA[ This is a pretty CDATA message! ]]>
+    </example:message>
+</example:execute>
+----
+
+== @Path
+
+パラメータをファイルまたはディレクトリへのパスとしてマークします。このパラメータは、UI ではファイルピッカー項目として表示されます。
+
+このアノテーションは、`String` 型のパラメータでのみ使用できます。
+
+このアノテーションは以下の情報を提供します。
+
+* `type`: パスの対象がディレクトリ、ファイル、またはその両方のいずれであるか。
+* `acceptsUrls`: @Path パラメータで URL をサポートするかどうか。
+* `acceptedFileExtensions`: パラメータが処理できる拡張子のリスト。
+
+次の例では、リモートリソースを含む、拡張子が `.txt` のファイルを受け入れます。
+
+[source,java,linenums]
+----
+@Parameter
+@Path(type = FILE, acceptedFileExtensions = "txt", acceptsUrls = true)
+private String resourcePath;
+----
+
+== @Password
+
+UI から入力されたパラメータ値をマスクするように指示します。
+
+このアノテーションは、`String` 型のパラメータでのみ使用できます。
+
+.UI での例
+image::password.png[パスワード入力]
+
+== すべての統合
+
+上記のアノテーションを組み合わせた例を示します。
+
+[source,java,linenums]
+----
+@Parameter
+@Placement(order = 3, tab="Additional information")
+@Example("My name is Max the Mule and I love MuleSoft!")
+@DisplayName("User biography")
+@Summary("Information related to the user\'s life")
+@Text
+private String biography;
+----
+
+== @ClassValue
+*バージョン 1.1 以降で使用可能*
+
+パラメータがクラス名への参照であることを指示します。
+
+このアノテーションは、`String` 型のパラメータでのみ使用できます。
+
+パラメータがクラスであることをツールに示すだけでなく、参照可能なクラスの制約も指定できます。割り当てられた値が特定のクラスまたはインターフェースを拡張または実装 (`extendsOrImplements`) する必要があることを示すことができます。
+
+使用する JDBC ドライバのクラス名をエンドユーザが指定する必要のあるデータベースコネクタの例を次に示します。
+
+[source,java,linenums]
+----
+@Parameter
+@ClassValue(extendsOrImplements = "java.sql.Driver")
+private String driverClassName;
+----

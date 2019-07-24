@@ -1,0 +1,16 @@
+= ストリーミング
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, ストリーミング, データ, ページネーション
+
+Mule 4 では、ストリーミングによって、自動的および透過的な反復可能ストリームが可能になります (詳細は、以下の「ストリーミングについて」を参照)。
+
+ストリーミングには次の 2 種類があります。
+
+* <<binary-streaming#, バイナリストリーミング>>
+* <<object-streaming#, オブジェクトストリーミング>>
+
+== 関連情報
+
+xref:4.1@mule-runtime::streaming-about.adoc#repeatable_streams[ストリーミングについて]

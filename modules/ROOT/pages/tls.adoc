@@ -1,0 +1,85 @@
+= TLS 設定
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, セキュリティ, tls
+
+TLS 設定のサポートをモジュールに追加する方法は簡単です。次の例のように、種別 `TlsContextFactory` の <<parameters#,パラメータ>>を宣言するだけです。
+
+[source,java,linenums]
+----
+@Parameter
+@Optional
+private TlsContextFactory tlsContextFactory;
+----
+
+上記の例では、次の XML 設定のサポートが自動的に生成されます。
+
+[source,xml,linenums]
+----
+<tls:context enabledProtocols="TLSv1.2,SSLv3">
+    <tls:trust-store path="my-trust-store.jks" password="myPassword"/>
+    <tls:key-store path="my-key-store.jks" keyPassword="myPassword" password="myPassword"/>
+</tls:context>
+----
+
+TLS コンテキストをアプリケーションのグローバル要素として定義することもできるため、使用する必要がある任意の場所でその名前を使用して TLS コンテキストを参照できます。
+
+TLS の必要性をユーザに表示しない場合 (内部的にサービスに安全に接続する必要がある場合など)、そのビルダーを使用して独自の `TlsContextFactory` を作成できます。
+
+[source,java,linenums]
+----
+private final TlsContextFactory tlsContextFactory = TlsContextFactory.builder()
+                                                        .trustStorePath("tls/trustStore")
+                                                        .trustStorePassword("mulepassword")
+                                                        .build()
+----
+
+このビルダーでは、`TlsContextFactory` のデフォルトインスタンスを作成することもできます。
+
+[source,java,linenums]
+----
+private final TlsContextFactory defaultTlsContextFactory = TlsContextFactory.builder().buildDefault();
+----
+
+`TlsContextFactory` が使用可能になると (パラメータとして使用可能か、そのビルダーを介して取得されたかに関係なく)、次の例のように初期化する必要があります。
+
+[source,java,linenums]
+----
+if (tlsContextFactory instanceof Initialisable) {
+  ((Initialisable) tlsContextFactory).initialise();
+}
+----
+
+次に、これを使用して `SSLContext`、`SSLSocketFactory`、または `SSLServerSocketFactory` を取得できます。また、有効になった TLS プロトコルと暗号化スイートを取得することもでき、これを使用して、以下の例のように、TLS/SSL を使用するほとんどの Java コンポーネントをセットアップできます。
+
+https://commons.apache.org/proper/commons-net/apidocs/org/apache/commons/net/ftp/FTPSClient.html[FTPSClient] をセットアップするには、&#8203;https://docs.oracle.com/javase/8/docs/api/javax/net/ssl/SSLContext.html[SSLContext] を取得し、次にそのプロトコルと暗号化スイートを設定します。
+
+[source,java,linenums]
+----
+SSLContext sslContext = tlsContextFactory.createSslContext();
+String[] enabledProtocols = tlsContextFactory.getEnabledProtocols();
+String[] enabledCiphers = tlsContextFactory.getEnabledCipherSuites();
+
+FTPSClient client = new FTPSClient(sslContext);
+client.setEnabledProtocols(enabledProtocols);
+client.setEnabledCipherSuites(enabledCiphers);
+----
+
+https://docs.oracle.com/javase/8/docs/api/javax/net/ssl/SSLSocketFactory.html[SSLSocketFactory] を取得して、独自の https://docs.oracle.com/javase/8/docs/api/java/net/Socket.html[ソケット]を作成することもできます。
+
+[source,java,linenums]
+----
+SSLSocketFactory sslSocketFactory = tlsContextFactory.createSocketFactory();
+Socket socket = sslSocketFactory.create();
+----
+
+代わりに https://docs.oracle.com/javase/8/docs/api/java/net/ServerSocket.html[ServerSocket] を作成するには、&#8203;https://docs.oracle.com/javase/8/docs/api/index.html?javax/net/ssl/SSLServerSocketFactory.html[SSLServerSocketFactory] を取得することもできます。
+
+[source,java,linenums]
+----
+SSLServerSocketFactory sslServerSocketFactory = tlsContextFactory.createServerSocketFactory();
+ServerSocket socket = sslServerSocketFactory.createServerSocket();
+----
+
+TLS コンテキストと、すべての使用可能なパラメータを正しく設定するには、xref:4.1@mule-runtime::tls-configuration.adoc[「キーストアとトラストストアを使用した TLS の設定」]を参照してください。

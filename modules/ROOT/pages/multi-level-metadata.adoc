@@ -1,0 +1,236 @@
+= 複数レベルのメタデータ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+
+サービスが提供するアクションを呼び出す操作を、エンドユーザが使用するとします。アクションが引数として必要とするメタデータや、アクションが返す結果のメタデータを知るには、実行するアクションからこのサービスを切り離して考える必要があります。そのためにはメタデータキー ID を使用します。これらのケースでは、メタデータキー ID は単一の `String` である必要はありません。データキー ID は、メタデータの解決に必要な情報を格納した複雑なパラメータ内でバンドルされた複数の部分であっても構いません。
+
+== マルチレベルメタデータキーの実装
+
+メタデータキーのパラメータを指定する順序を `1` から設定する必要があります。上記の例では、エンドユーザは最初にサービス項目を指定してから、その次に呼び出すアクションを指定します。そのため、サービスパラメータで `order = 1` を設定してからアクションパラメータで `order = 2` を設定する必要があります。
+
+`MetadataKeyId` を表す POJO のすべてのパラメータには、`order` 値を設定する `@MetadataKeyPart` アノテーションを付加する必要があります。これらのアノテーション付き項目は、`String` 型である必要があります。
+
+メタデータキー ID クラスの例を示します。
+
+[source,java,linenums]
+----
+public class ActionIdentifier {
+
+  @Parameter
+  @MetadataKeyPart(order = 1) // <1>
+  private String service;
+
+  @Parameter
+  @MetadataKeyPart(order = 2) // <1>
+  private String action;
+
+  public String getService() {
+    return service;
+  }
+
+  public String getAction() {
+    return action;
+  }
+
+  public void setService(String service) {
+    this.service = service;
+  }
+
+  public void setAction(String action) {
+    this.action = action;
+  }
+}
+----
+
+次の例では、複雑な型である `MetadataKeyId` を使用する操作を示しています。
+
+[source,java,linenums]
+----
+@OutputResolver(output = OutputOperationTypeResolver.class)
+public Object invoke( @ParameterGroup(name = "Operation") @MetadataKeyId(OperationTypeKeysResolver.class) ActionIdentifier identifier,
+                      @TypeResolver(InputOperationTypeResolver.class) Map<String, Object> args){
+  return invokeAction(identifier.getService(), identifier.getAction(), args);
+}
+----
+
+次は、使用可能な各 `MetadataKey` を返す `TypeKeysResolver` の例です。
+
+[source,java,linenums]
+----
+public class OperationTypeKeysResolver implements TypeKeysResolver {
+
+  @Override
+  public Set<MetadataKey> getKeys(MetadataContext context) throws MetadataResolvingException, ConnectionException {
+    Set<MetadataKey> keys = new HashSet<>();
+    for(String service : getServices()){
+      MetadataKeyBuilder key = MetadataKeyBuilder.newKey(service);
+      for(String action : getActions(service)){
+        key.withChild(MetadataKeyBuilder.newKey(action).build());
+      }
+      keys.add(key.build());
+    }
+    return keys;
+  }
+}
+----
+
+[source,java,linenums]
+----
+public class OutputOperationTypeResolver implements OutputTypeResolver<ActionIdentifier>{
+
+  @Override
+  public MetadataType getOutputType(MetadataContext context, ActionIdentifier key)
+     throws MetadataResolvingException, ConnectionException {
+     // Resolve the output metadata using the ActionIdentifier
+  }
+}
+----
+
+[source,java,linenums]
+----
+public class InputOperationTypeResolver implements {
+
+  @Override
+  public MetadataType getInputMetadata(MetadataContext context, ActionIdentifier key)
+    throws MetadataResolvingException, ConnectionException {
+    // Resolve the input metadata using the ActionIdentifier
+  }
+
+}
+----
+
+== 部分的なフェッチ
+
+*バージョン 1.1 以降で使用可能*
+
+各 `MetadataKey` の取得には非常に長い時間を要することがあります。選択可能なすべてのサービスと各サービスのアクションを取得する例では、フェッチする情報が別のサーバにある場合があります。
+
+部分的なフェッチでは、`MetadataKey` ツリーを一度に 1 レベルずつ解決することができます。
+
+`TypeKeysResolver` の `getKeys` メソッドは、各 `MetadataKey` のツリー全体ではなく各ツリーの最初のレベルのみを返します。
+
+選択可能なサービスのみを取得するため、必要な情報量が大幅に減ります。サービスを選択したら、`MetadataKey` ツリーの次のレベルを提供する必要があります。
+
+そのためには、キーリゾルバが `PartialTypeKeysResolver` を実装する必要があります。次に例を示します。
+
+[source,java,linenums]
+----
+public class OperationTypeKeysResolver implements PartialTypeKeysResolver<ActionIdentifier> {
+
+  @Override
+  public Set<MetadataKey> getKeys(MetadataContext context) throws MetadataResolvingException, ConnectionException {
+    Set<MetadataKey> keys = new HashSet<>();
+    for(String service : getServices()){ // <1>
+      MetadataKeyBuilder key = MetadataKeyBuilder.newKey(service);
+      keys.add(key.build());
+    }
+    return keys;
+  }
+
+  @Override
+  public MetadataKey resolveChilds(MetadataContext metadataContext, ServiceOperation key)
+      throws MetadataResolvingException, ConnectionException {
+
+    if(key.getService() == null){
+      throw new MetadataResolvingException("Missing Service name. Cannot resolve Actions without a service",
+                                         FailureCode.INVALID_METADATA_KEY);
+    }
+
+    MetadataKeyBuilder key = MetadataKeyBuilder.newKey(key.getService()); // <2>
+    for(String action : getActions(key.getService())){
+      key.withChild(MetadataKeyBuilder.newKey(action).build()); // <3>
+    }
+    return key;
+  }
+
+}
+----
+
+<1> サービスのみが取得されます。サービスのアクションはオンデマンドで取得されます。
+<2> 新しい完全なメタデータのレベル (この例ではアクションレベル) で単一の `MetadataKey` ツリーを構築します。
+<3> そのサービスのアクションを子として追加します。
+
+== 部分的なレベルとしてのユーザ入力の使用
+
+*バージョン 1.1 以降で使用可能*
+
+一部のケースでは、MetadataKey の部分についてのヒントをエンドユーザに提供できないことがあります。たとえば、オプションが多すぎる場合や (クラスパス内のすべてのクラスをドロップダウンに表示することは無意味です)、ID の開始点が自由入力 (クエリなど) である場合です。
+
+Java クラスを表す `String` である部分を持つ `MetadataKeyId` を想像してください。すべてのクラスを取得するには長時間を要するうえに、ドロップダウンに多くのオプションを用意しても使いづらいだけです。
+
+そこで、`MetadataKeyPart` がリゾルバからは提供されず、ユーザが挿入する必要があると通知します。これを行うには、`MetadataKeyPart` アノテーションで `providedByKeyResolver` を `false` 値に設定します。
+
+`MetadataKeyId` を表す POJO が Java メソッドを表す例を示します。
+
+[source,java,linenums]
+----
+public class MethodIdentifier{
+
+  @Parameter
+  @Alias("class")
+  @MetadataKeyPart(order = 1, providedByKeyResolver = false) // <1>
+  private String clazz;
+
+  @Parameter
+  @Alias("method")
+  @MetadataKeyPart(order = 2)
+  private String methodId;
+
+  @Override
+  public String getClazz() {
+    return clazz;
+  }
+
+  @Override
+  public String getMethodId() {
+    return methodId;
+  }
+
+  @Override
+  public void setClazz(String clazz) {
+    this.clazz = clazz;
+  }
+
+  @Override
+  public void setMethodId(String methodId) {
+    this.methodId = methodId;
+  }
+}
+----
+
+<1> `clazz` 項目は、ヒントなしでエンドユーザが挿入する必要があります。
+
+また、このケースでは `getKeys` メソッドはすべての可能なクラスを返すことができません。
+
+[source,java,linenums]
+----
+public class MethodTypeKeysResolver implements PartialTypeKeysResolver<MethodIdentifier> {
+
+  @Override
+  public Set<MetadataKey> getKeys(MetadataContext context) throws MetadataResolvingException, ConnectionException {
+    return emptySet(); // <1>
+  }
+
+  @Override
+  public MetadataKey resolveChilds(MetadataContext metadataContext, MethodIdentifier key)
+      throws MetadataResolvingException, ConnectionException {
+
+    if(key.getClazz() == null){
+      throw new MetadataResolvingException("Missing Class name. Cannot resolve Methods without a target Class",
+                                         FailureCode.INVALID_METADATA_KEY);
+    }
+
+    MetadataKeyBuilder key = MetadataKeyBuilder.newKey(key.getClazz()); // <2>
+    for(String methodId : getMethodIds(key.getClazz())){
+      key.withChild(MetadataKeyBuilder.newKey(methodId).build()); // <3>
+    }
+    return key;
+  }
+
+}
+----
+
+<1> 空の `MetadataKey` セットを返しますが、これはエンドユーザがこの情報を提供するためです。
+<2> 新しい完全なメタデータのレベル (この例では `methodIds` レベル) で単一の `MetadataKey` ツリーを構築します。
+<3> そのクラスの `methodIds` を子として追加します。

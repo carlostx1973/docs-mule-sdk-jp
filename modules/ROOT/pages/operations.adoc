@@ -1,0 +1,260 @@
+= 操作
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, 操作, processor, 結果, 実行, void, ペイロード,
+
+操作は、最も重要な Mule 概念の 1 つで、モジュールがフロー内で実行できるアクションを表します。操作を使用して、モジュールで実装されているビジネスロジック経由で渡される受信メッセージを処理します。
+
+== Config クラスでの操作の宣言
+
+操作は別のクラスで宣言する必要があります。モジュールのコードを正しく編成する方法は、<<module-structure#,構造>>についての説明を参照してください。
+
+TIP: クラスは Config クラスまたは Operations クラスのどちらかになります。同じクラスに両方を混在させることはできません。
+
+[source,java,linenums]
+----
+@Extension(name = "Foo")
+@Operations(FooOperations.class)
+public class FooModule {
+
+    @Parameter
+    private String fooModuleParameter;
+
+    public String getFooModuleParameter() {
+        return fooModuleParameter;
+    }
+}
+----
+
+`FooOperations` で定義されているすべての公開メソッドは、操作と見なされます。Operation クラスの内部で公開メソッドを使用し、それを操作とは見なされないにようにする場合は、そのメソッドに `@Ignore` アノテーションを付加します。
+
+例:
+
+[source,java,linenums]
+----
+public class FooOperations {
+
+    public String foo(@Config FooModule config) {
+        return config.getFooModuleParameter();
+    }
+
+    private String thisIsNotAnOperation() {
+        return "bar";
+    }
+
+    @Ignore
+    public String thisIsNotAnOperationEither() {
+        return "foobar";
+    }
+}
+----
+
+上記の例では、Operation クラスが Config (Extension クラスと同じ) にのみバインドされています。つまり、`FooOperations` で定義されている操作は、特定種別の設定 (このケースでは `FooModule`) でのみ使用できることを意味します。
+
+TIP: Extension クラスを Config クラスとして使用できるのは、それが唯一の設定である​_場合に限られます_​。
+
+これによって `foo` という名前の操作が定義されます。この操作は `FooModule` という​*設定に属する*​ため、Config クラスを `@Config` アノテーション付きの引数として受け取ることができます。
+
+Config はパラメータではないため、<<parameters#,パラメータ>>として使用する引数には `@Config` アノテーションを付加することはできません。
+
+== グローバル操作
+
+特定の設定専用の操作を追加するだけではなく、操作をモジュール全体で使用できるように、Extension レベルで操作を追加することができます。
+
+Extension クラスが唯一の Config クラスではない限り、Extension レベルの操作に設定を割り当てることはできません。つまり、操作は特定の設定にはバインドされません。Extension レベルで操作を定義するには、Extension クラスを唯一の設定とするのではなく、設定を定義してから Extension クラスに `@Operations` アノテーションを付加します。
+
+これは、複数の設定がある場合にのみ意味があることに注意してください。Extension クラス (唯一の設定) しかない場合は、定義するすべての操作はその設定にバインドされるからです。
+
+次の例では、2 つの設定を追加して、それぞれに操作を定義しています。そして、モジュールに対してグローバルな操作をいくつか追加しています。
+
+[source,java,linenums]
+----
+@Extension(name = "Foo")
+@Operations(GlobalOperations.class)
+@Configurations({FooConfig.class, BarConfig.class})
+public class FooModule {
+}
+----
+
+[source,java,linenums]
+----
+public class GlobalOperations {
+    public String fooModuleOperation() {
+        return "this operation is global to the module!";
+    }
+}
+----
+
+上記の例では、`FooConfig` と `BarConfig` の 2 つの設定と、`GlobalOperations` に定義された操作のセットを持つモジュールを定義しています。
+
+設定と操作は次のようになります。
+
+[[example_1]]
+[source,java,linenums]
+----
+@Operations({FooConfigOperations.class})
+public class FooConfig {
+
+    @Parameter
+    private String fooParameter;
+
+    public String getFooParameter() {
+        return fooParameter;
+    }
+}
+----
+
+[source,java,linenums]
+----
+public class FooConfigOperations {
+    public String fooConfigOperation(@Config FooConfig config) {
+        return "this operation receives the FooConfig which has a fooParameter with value: " + config.getFooParameter();
+    }
+}
+----
+
+上記の例では、`FooConfigOperations` にいくつかの専用操作を定義して、`FooConfig` という新しい設定を定義しています。そして、`fooConfigOperation` という操作を定義しています。この操作は `FooConfig` という設定に属するため、Config クラスを特別な `@Config` アノテーション付きの引数として受け取ることができます。
+
+[source,java,linenums]
+----
+@Operations({BarConfigOperations.class})
+public class BarConfig {
+
+    @Parameter
+    private String barParameter;
+
+    public String getBarParameter() {
+        return barParameter;
+    }
+}
+----
+
+[source,java,linenums]
+----
+public class BarConfigOperations {
+    public String barConfigOperation(@Config BarConfig config){
+        return "this operation receives the BarConfig which has a barParameter with value: " + config.getBarParameter();
+    }
+}
+----
+
+操作を (上記の `GlobalOperations` メソッドと同じように) Extension レベルで定義することは、定義される操作が操作対象の設定を受け取らないこと (したがって設定を必要としないこと) を意味します。
+
+設定の詳細については、<<configs#,設定>>についての説明を参照してください。
+
+[[_using_connections]]
+== 接続済み操作
+
+設定を引数として受け取るだけではなく、接続も​_特別な_​引数として受け取ることができます。これは、操作が属する設定の<<connections#,接続プロバイダ>>を定義することにより行います。
+
+次の例では、<<example_1,前述の例>>に接続を追加しています。
+
+`FooConnection` 種別の接続を提供する `FooConnectionProvider` を、別の場所で定義するとします。(接続プロバイダの定義方法については<<connections#,接続プロバイダ>>についての説明を参照してください。)
+
+[source,java,linenums]
+----
+@Operations({FooConfigOperations.class})
+@ConnectionProviders(FooConnectionProvider.class)
+public class FooConfig {
+
+    @Parameter
+    private String fooParameter;
+
+    public String getFooParameter() {
+        return fooParameter;
+    }
+}
+----
+
+[source,java,linenums]
+----
+public class FooConfigOperations {
+    public String fooConfigOperation(@Config FooConfig config){
+        return "this operation receives the FooConfig!";
+    }
+
+    public String fooConnectedOperation(@Connection FooConnection connection){
+        return "this operation receives FooConnection!";
+    }
+
+    public String fooConnectedOperation(@Config FooConfig config, @Connection FooConnection connection){
+        return "this operation receives both config and connection!";
+    }
+}
+----
+
+この例には 3 つの異なる操作があります。
+
+* 設定 `FooConfig` を受け取る操作
+* 接続 `FooConnection` を受け取る操作
+* 設定 `FooConfig` を受け取って `FooConnectionProvider` プロバイダクラスが提供する `FooConnection` 種別の接続を取得する操作。
+
+== 操作の構造
+
+操作は Java メソッドで定義するため、メソッドの引数と操作パラメータのマッピングは簡潔明瞭です。同じロジックに従って、操作の出力型はメソッドの戻り値のデータ型から取られます。
+
+=== 出力
+
+以下のセクションでは、操作を呼び出したときに、操作の出力がフローの動作にどのように影響するかについて説明します。
+
+==== ペイロード
+
+共通する動作は、操作の出力メッセージのペイロードに設定される任意の型を返す操作の定義です。
+
+[source,java,linenums]
+----
+
+public String outputStringPayload(){
+    return "this string is going directly into the payload!";
+}
+----
+
+[ヒント] 操作でペイロード​*のみ*​を指定している場合、メッセージ属性は `null` に設定されます。
+
+==== void
+
+void 操作は、`void` を返すメソッドから作成される操作です。この操作では受け取ったメッセージを変更せず、フロー内の次のコンポーネントに渡します。次に例を示します。
+
+[source,xml,linenums]
+----
+<flow>
+    <set-payload value="Hello" />
+    <foo:output-string-payload/>
+    <foo:other-operation />
+</flow>
+----
+
+ここでは、`void-operation` で受け取るメッセージは `other-operation` で受け取るメッセージと同じです。
+
+==== 結果
+
+ペイロードに関する情報 (Mule メッセージの属性) など、単純なペイロード以外に何かを出力させる場合は、メソッドの戻り値のデータ型として `Result` を使用します。詳細は、<<result-object#,Result>> オブジェクトについての説明を参照してください。
+
+=== 特別な引数
+
+操作では設定と接続を受け取ることができます。通常のパラメータ以外の特別な引数もあるのでしょうか? はい。
+
+操作では、特別な引数として以下を受け取ることができ、Mule は正しい値を自動的に挿入します。
+
+* `AuthenticationHandler`: `AuthenticationHandler` 型の引数は、現在のコンテキストの認証を設定します。暗号化やインバウンド認証で使用します。
+* `StreamingHelper`: `StreamingHelper` 型の引数は、ストリームを操作するユーティリティを提供します。詳細は<<streaming#,「ストリーミング」>>を参照してください。
+* `DefaultEncoding`: `@DefaultEncoding` アノテーションが付いた `String` 型の引数は、ランタイムのデフォルトエンコーディング情報を提供します。
+
+[source,java,linenums]
+----
+public String foo(@DefaultEncoding String encoding) {
+    return "Mule default encoding is " + encoding;
+}
+----
+
+== 操作の別名
+
+`@Alias` を使用すると、メソッド名を変更せずに操作の名前を変更できます。<<parameters#,「パラメータ」>>で説明しているように、操作のパラメータにも別名を設定できます。
+
+[source,java,linenums]
+----
+@Alias("fooOperation")
+public void thisWillNotBeTheOperationName(@Alias("fooParameter") String aliasedParameter) {
+}
+----

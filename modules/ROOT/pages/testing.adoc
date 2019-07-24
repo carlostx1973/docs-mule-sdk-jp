@@ -1,0 +1,11 @@
+= モジュールのテスト
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+
+テストにより、コードの一部が正しく動作することが確認できます。モジュールをテストすることは、単にビジネスロジックに応じてテストケースを作成するだけにとどまりません。モジュールと Mule 間でインタラクションのテストを何度も実行し、Mule エコシステムとの互換性を確保する必要があります。
+
+モジュールのテスト方法についての詳細は、以下の一連の記事を参照してください。これらの記事では、モジュールをテストするためのステップごとの手順が紹介されています。また、モジュールのテストケースの基本と、モジュールからの簡単な操作の実行方法についても説明されています。
+
+* <<testing-writing-your-first-test-case#, 最初のテストケースの作成>>
+* xref:testing-writing-your-first-test-case.adoc#testing-flowrunner[FlowRunner]

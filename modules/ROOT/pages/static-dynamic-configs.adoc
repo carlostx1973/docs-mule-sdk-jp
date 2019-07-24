@@ -1,0 +1,111 @@
+= 動的設定
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, config, 動的, マルチテナント, マルチテナント
+
+設定パラメータで式の使用が必要になることは特別なことではありません。一般的なユースケースを次に示します。
+
+* マルチテナント: 有効なユーザに応じて、ログイン情報またはその他の設定が変わる場合があります。
+* 動的エンドポイント: 転送されるメッセージに応じて、異なる宛先が使用されます。
+* 動的設定: たとえば、メッセージの宛先に応じて、タイムアウトが変わる場合があります。
+
+== 静的設定
+
+設定のパラメータに式が割り当てられていない場合 (パラメータで式がサポートされている場合でも)、その設定は静的です。次に例を示します。
+
+.例: 静的設定
+[source,xml,linenums]
+----
+<ftp:config name="ftp" defaultWriteEncoding="UTF-8">
+  <ftp:connection username="foo" password="mySecret" />
+</ftp:connection>
+----
+
+この例ではすべてのパラメータが固定値を持つため、この設定は静的です。
+
+式以外の値を持つパラメータと式を受け入れないパラメータとの間には違いがあります。式以外の値を持つパラメータは、式を値として受け入れる場合があります。
+
+== 動的設定
+
+動的設定では、少なくとも 1 つのパラメータに式があります。次に例を示します。
+
+.例: 動的設定
+[source,xml,linenums]
+----
+<ftp:config name="ftp" defaultWriteEncoding="#[attributes.queryParams.encoding]">
+  <ftp:connection username="foo" password="mySecret" />
+</ftp:connection>
+----
+
+`defaultWriteEncoding` は実行ごとに異なる値に解決される可能性があるため、この設定は動的です。
+
+別の動的設定の例を次に示します。
+
+[[multi_tenancy]]
+.例: マルチテナント
+[source,xml,linenums]
+----
+<ftp:config name="ftp" defaultWriteEncoding="UTF-8">
+  <ftp:connection username="#[ftpUser]" password="#[ftpPassword]" />
+</ftp:connection>
+----
+
+この例は、マルチテナントの設定方法を示しています。接続パラメータ内の式も動的設定に解決されます。
+
+== 動的設定のライフサイクル
+
+静的設定と動的設定のライフサイクルは大きく異なります。静的設定では、インスタンスが必要になるたびに単一インスタンスが作成され、使用されます。
+
+動的設定の動作は異なります。動的設定を参照する操作が実行されるたびに、設定内のすべてのパラメータが評価されます。解決された一意のパラメータセットごとに設定インスタンスが作成されます。この方法では、同じ値が解決されるたびに同じインスタンスが返されますが、値セットが異なると、その値セットごとに異なるインスタンスが作成されます。
+
+== 動的設定の有効期限
+
+動的設定の作成は容易ですが、不要になった (または一定期間アイドル状態になっている) 設定インスタンスを破棄するための設定可能なメカニズムも必要です。これは、メモリ不足 (OOM) の問題を防ぐために重要です。
+
+<<multi_tenancy,FTP マルチテナント>>の例に戻ります。最悪のシナリオでは、新しい設定インスタンスをメッセージごとに生成することが強制されます。アプリケーションによっては、転送が完了すると、このインスタンスは必要でなくなります。
+
+デフォルトでは、設定要素の動的インスタンスは、5 分間非アクティブな状態だと自動的に破棄されます。
+
+[TIP]
+この時間内に操作が開始されない​_または終了しない_​場合、インスタンスは非アクティブとみなされます。FTP 転送が 6 分前に開始され、ファイルが非常に大きいために転送がまだ進行中の場合は、その設定は期限切れになりません。
+
+SDK ベースのモジュールでも、特定の設定定義のカスタムタイムアウトの指定がサポートされます。たとえば、デフォルトのタイムアウトが短かすぎる、あるいは長すぎることがわかっている場合に、モジュールのユーザがアプリケーションを調整してその状況に対処する場合などに、カスタムタイムアウトが指定できます。次の例では、タイムアウトを 30 秒に短縮しています。
+
+.例: タイムアウトの変更
+[source,xml,linenums]
+----
+<ftp:config name="ftp" defaultWriteEncoding="UTF-8">
+  <expiration-policy maxIdleTime="30" timeUnit="SECONDS" />
+  <ftp:connection username="#[ftpUser]" password="#[ftpPassword]" />
+</ftp:connection>
+----
+
+[TIP]
+`<expiration-policy />` 要素を使用可能にするためにユーザに求められる特定のアクションはありません。SDK がこれを自動的に実行します。
+
+また、すべての動的設定が異なるデフォルトを持つようにアプリケーションレベルでグローバルデフォルトを設定することもできます。これをセットアップするには、Mule DSL で `<configuration>` 要素を使用します。
+
+[source,xml,linenums]
+----
+<mule>
+  <configuration>
+    <dynamic-config-expiration>
+      <expiration-policy maxIdleTime="30" timeUnit="SECONDS" />
+    </dynamic-config-expiration>
+  </configuration>
+</mule>
+----
+
+最後に、Runtime が期限切れの設定がないかどうかを確認して破棄する頻度を設定することもできます (デフォルトは 5 分)。これを設定単位で実行することはできません。アプリケーションレベルでのみ実行できます。次の例では、デフォルトの有効期限を 30 秒に設定するだけでなく、Runtime がチェックを 1 分ごとに実行するように設定しています。
+
+[source,xml,linenums]
+----
+<mule>
+  <configuration>
+    <dynamic-config-expiration frequency="1" timeUnit="MINUTES">
+      <expiration-policy maxIdleTime="100" timeUnit="MILLISECONDS" />
+    </dynamic-config-expiration>
+  </configuration>
+</mule>
+----

@@ -1,0 +1,188 @@
+= 拡張動作での汎用パラメータの使用
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: パラメータ, パラメータ, mule, sdk, dsl, xml, サブタイプ, 型
+
+モジュール API の型定義は、ユーザに提供する操作に影響します。型を適切に構成すると、ユーザに公開する API を大幅に簡素化できます。
+
+== SubTypeMapping を使用した UX の簡素化
+
+パラメータが `authentication` や `destination` などの汎用コンポーネントを表している場合、複数の有効な設定セットが許可されます。認証にはさまざまな型 (`basic`、`digest`、`ntlm`、`oauth`) を使用できますが、各認証のすべてのパラメータを一度に使用可能にすると、ユーザの操作が困難なものになります。
+
+たとえば、`basic`、`digest`、および `ntlm` をサポートする認証を 1 つのパラメータに含めると、Authentication クラスは短くなりますが、混乱も招きます。
+
+[source,java,linenums]
+----
+public class Authentication {
+
+  @Parameter
+  private boolean useDigest; //<1>
+
+  @Parameter
+  private String username;
+
+  @Parameter
+  @Password
+  private String password;
+
+  @Parameter
+  @Optional
+  private String domain; //<2>
+
+  @Parameter
+  @Optional
+  private String workstation;
+
+}
+----
+
+<1> パラメータ `useDigest` は `basic` と `digest` を区切るためにのみ存在します。
+<2> `domain` と `workstation` は `ntlm` 設定にのみ関連するため、`useDigest` が無関係になります。
+
+必要なパラメータが 4 つのみの正しい設定でも、ユーザは容易に混乱してしまいます。
+
+代わりに `@SubTypeMapping` を使用すると、コード自体から型の使用方法を容易に理解でき、値の宣言がより簡潔になります。
+
+[source,java,linenums]
+----
+
+@Extension(name = "HTTP")
+@SubTypeMapping(baseType = Authentication.class, // <1>
+    subTypes = {BasicAuthentication.class, DigestAuthentication.class, NtlmAuthentication.class})
+public class HttpConnector {
+
+}
+
+public interface Authentication { // <2>
+
+  void authenticate(HttpRequestBuilder builder);
+
+}
+
+public class BasicAuthentication implements Authentication { // <3>
+
+  @Parameter
+  private String username;
+
+  @Parameter
+  @Password
+  private String password;
+
+}
+
+public class DigestAuthentication implements Authentication { // <4>
+
+  @Parameter
+  private String username;
+
+  @Parameter
+  @Password
+  private String password;
+
+}
+
+public class NtlmAuthentication implements Authentication { // <5>
+
+  @Parameter
+  private String username;
+
+  @Parameter
+  @Password
+  private String password;
+
+  @Parameter
+  @Optional
+  private String domain;
+
+  @Parameter
+  @Optional
+  private String workstation;
+
+}
+----
+
+<1> `SubTypeMapping` の宣言
+<2> 汎用 `Authentication` インターフェース
+<3> `Authentication` の `basic` としての実装
+<4> `Authentication` の `digest` としての実装
+<5> `Authentication` の `ntlm` としての実装
+
+次に汎用型 `Authentication` のパラメータを宣言します。
+
+[source,java,linenums]
+----
+@Alias("request")
+public class HttpRequesterProvider implements CachedConnectionProvider<HttpExtensionClient> {
+
+  @Parameter
+  private Authentication authentication;
+}
+----
+
+これでユーザは、より簡潔で一貫した方法で、3 つの可能な値のそれぞれを宣言できます。
+
+[source,xml,linenums]
+----
+<http:request-connection>
+  <http:authentication>
+      <http:basic-authentication username="withBasic" password="123">
+  </http:authentication>
+</http:request-connection>
+
+<http:request-connection>
+  <http:authentication>
+      <http:digest-authentication username="withDigest" password="456">
+  </http:authentication>
+</http:request-connection>
+
+<http:request-connection>
+  <http:authentication>
+      <http:ntlm-authentication username="withNtlm" password="Beeblebrox" domain="Ursa-Minor"/>>
+  </http:authentication>
+</http:request-connection>
+----
+
+== モジュール設定を使用した動作の拡張
+
+モジュールで独自の認証方法を提供する必要がある場合、`@Import` と `@SubTypeMapping` の組み合わせを使用します。
+
+次の例では、`oauth` 認証を `http` モジュールに追加しています。
+
+
+[source,java,linenums]
+----
+@Extension(name = "OAuth")
+@Import(type = HttpRequestAuthentication.class) //<1>
+@SubTypeMapping(baseType = Authentication.class, //<2>
+    subTypes = {DefaultAuthorizationCodeGrantType.class, ClientCredentialsGrantType.class})
+public class OAuthExtension {
+
+}
+----
+
+<1> HTTP 認証種別からインポートを定義します。
+<2> OAuth 拡張から認証種別へのその他のサブタイプマッピングを追加します。
+
+これで、2 つの新しい認証方法が実装されると、元の拡張 `HTTP` のコードを変更せずに、それらをパラメータ化して任意のアプリケーションの HTTP コネクタに渡すことができます。つまり、上記の同じアプリケーションに対して、新しい認証方法を追加できます。
+
+[source,xml,linenums]
+----
+<http:request-connection host="localhost" port="${oauth.server.port}">
+    <http:authentication> // <1>
+        <oauth:authorization-code-grant-type // <2>
+                clientId="${client.id}"
+                clientSecret="${client.secret}"
+                externalCallbackUrl="${local.callback.url}"
+                tokenManager="multitenantOauthConfig"
+                localAuthorizationUrl="${local.authorization.url}"
+                authorizationUrl="${authorization.url}"
+                refreshTokenWhen="#[attributes.statusCode == 500]"
+                tokenUrl="${token.url}">
+        </oauth:authorization-code-grant-type>
+    </http:authentication>
+</http:request-connection>
+----
+
+<1> `authentication` 要素は同じですが、その要素には新しい要素 `authorization-code-grant-type` が含まれます。
+<2> 要素 `authorization-code-grant-type` は `oauth` 名前空間から取得されます。

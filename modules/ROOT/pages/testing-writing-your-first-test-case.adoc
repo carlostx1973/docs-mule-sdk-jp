@@ -1,0 +1,129 @@
+= 最初のテストケースの作成
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+
+このセクションでは、モジュールの操作をテストするための、ステップごとの手順について説明します。また、実行する必要があるテストケースの基本について説明します。
+
+== 1 つ目の概念
+
+モジュールのすべてのテストケースに以下の基本項目が含まれている必要があります。
+
+* テストケースクラス: テストロジックを含む Java クラス。フローを実行し、結果についてアサーションを実行します。
+* Mule アプリケーション XML: テストするモジュールを使用する Mule アプリケーション。
+
+このドキュメントは、Mule 拡張アーキタイプを使用して生成されたモジュールプロジェクトに基づきます (<<getting-started#generating-a-project-using-the-maven-archetype-directly,最初の SDK プロジェクトの作成>>)。
+
+この例を使用して、モジュールのテスト方法を学習してください。
+
+== 1. テストケースクラスの作成
+
+テストケースクラスは、`MuleArtifactFunctionalTestCase` から継承される必要があります。これで、Mule アプリケーション内でのモジュールのテストが可能になります。
+
+[source,java,linenums]
+----
+public class BasicOperationsTestCase extends MuleArtifactFunctionalTestCase {
+
+}
+----
+
+== 2. Mule アプリケーションの記述
+
+モジュールをテストするには、そのモジュールを使用する Mule アプリケーションを実行し、フローを実行して、実行結果についてアサーションを実行します。
+
+Mule アプリケーション XML は、モジュールプロジェクトの `src/test/resources` フォルダ内に配置する必要があります。
+
+[source,xml,linenums]
+----
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:basic="http://www.mulesoft.org/schema/mule/basic"
+      xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+          http://www.mulesoft.org/schema/mule/basic http://www.mulesoft.org/schema/mule/basic/current/mule-basic.xsd">
+
+    <basic:config name="basic-config" configId="configId">
+        <basic:connection requiredParameter="aValue" />
+    </basic:config>
+
+    <flow name="sayHiFlow">
+        <basic:say-hi person="Mariano Gonzales"/>
+    </flow>
+
+    <flow name="retrieveInfoFlow">
+        <basic:retrieve-info config-ref="basic-config"/>
+    </flow>
+
+</mule>
+----
+
+image::first-test-app.png[align="center"]
+
+ヒント: Mule アプリケーションの記述は、Anypoint Studio で Mule アプリケーションを作成し、生成された XML をコピーしてモジュールプロジェクト内に貼り付けることで簡単にできます。
+
+== 3. テストケースへの Mule アプリケーションのインポート
+
+テストケースクラスと Mule アプリケーション XML を作成したら、その 2 つのコンポーネントをバインドし、テストケースを実行する Mule アプリケーションを識別します。これを行うには、`getConfigFile()` メソッドを上書きし、Mule アプリケーション XML の相対パスを含む `String` を返します。
+
+WARNING: 設定ファイルのパスは、`module-project/src/test/resources` フォルダを基準とする相対パスです。たとえば、XML ファイルが `module-project/src/test/resources/test-connector-mule-app.xml` に配置されている場合、`getConfigFile()` メソッドは `test-connector-mule-app.xml` を返します。
+
+[source,java,linenums]
+----
+public class ModuleTestCase extends MuleArtifactFunctionalTestCase {
+
+    @Override
+    protected String getConfigFile() {
+        return "test-connector-mule-app.xml";
+    }
+
+}
+----
+
+== 4. 最初のテストケースの作成
+
+このフェーズでは、モジュールテストケースの作成を開始するためのすべてをセットアップします。最初のテストでは、フローを実行し、出力を取得して、それに対してアサーションを実行する簡単な操作をテストするように記述します。
+
+[[testing-flowrunner]]
+=== 4.1 フローの実行
+
+`flowRunner("flowName")` ユーティリティメソッドを使用して、`FlowRunner` (フローを実行できるユーティリティ) のインスタンスを作成します。パラメータで識別されたフローを実行するように `FlowRunner` インスタンスを設定します。
+
+次に `FlowRunner` インスタンスで `run()` を実行します。次に例を示します。
+
+[source,java,linenums]
+----
+Event event = flowRunner("sayHiFlow").run();
+----
+
+フローを実行すると、`payload`、`attributes`、`vars` と、フローの実行に関して使用可能なすべての情報を含む `Event` が返されます。
+
+=== 4.2 ペイロード値の取得
+
+フローを実行したら、`event` 変数にフローの実行結果が含まれます。ペイロードの値を取得し、必要なアサーションを実行するには、この変数が必要です。
+
+[source,java,linenums]
+----
+    Object payloadValue = event.getMessage()
+                               .getPayload()
+                               .getValue();
+    assertThat(payloadValue, is("Hello Mariano Gonzales!!!"))
+----
+
+=== 4.3 まとめ
+
+次の例は、前述のテストケース手順をまとめたものです。
+
+[source,java,linenums]
+----
+@Test
+public void executeSayHiOperation() throws Exception {
+  Event sayHiFlow = flowRunner("sayHiFlow").run();           //<1>
+  String payloadValue = ((String) sayHiFlow
+                                    .getMessage()
+                                    .getPayload()
+                                    .getValue());            //<2>
+  assertThat(payloadValue, is("Hello Mariano Gonzales!!!")); //<3>
+}
+----
+<1> `sayHiFlow` フローを実行します。
+<2> ペイロード値を取得します。
+<3> 値に対してアサーションを実行します。

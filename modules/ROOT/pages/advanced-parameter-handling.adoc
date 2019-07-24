@@ -1,0 +1,26 @@
+= 高度なパラメータ処理
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+
+SDK の機能は、UI と UX の調整を追加し、モジュールが他のモジュールの要素とやりとりできるように拡張ポイントを有効にし、定型コードを回避するための実装の拡張を提供することで、モジュールの品質を向上できます。
+
+== UI と UX の調整
+
+* xref:special-parameters.adoc[特殊なパラメータ]
+* xref:parameter-layout.adoc[パラメータ UI のカスタマイズ]
+* xref:parameters-dsl.adoc[パラメータ DSL のカスタマイズ]
+* xref:exclusive-optionals.adoc[排他的省略可能パラメータ]
+* xref:value-providers.adoc[値プロバイダ]
+
+== 拡張ポイントとモジュールの再利用
+
+* xref:imported-types.adoc[他のモジュールからの型のインポート]
+* xref:subtypes-mapping.adoc[拡張動作での汎用パラメータの使用]
+* xref:stereotypes.adoc[種類別に要素を参照する方法としてのステレオタイプ]
+
+
+== 実装の拡張
+
+* xref:null-safe.adoc[NullSafe]
+* xref:mule-service-injection.adoc[Mule サービスインジェクション]

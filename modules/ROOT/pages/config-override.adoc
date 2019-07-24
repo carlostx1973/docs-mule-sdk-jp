@@ -1,0 +1,281 @@
+= 設定の上書き
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, config, 設定, 上書き, パラメータ
+
+_グローバルデフォルト_​として機能する設定内のパラメータでは、他の操作およびソースで使用されるデフォルト値または動作を指定します。そのパラメータの値を上書きするアプリケーション内のコンポーネントの場合、`@ConfigOverride` を使用できます。
+
+== 設定の上書きとは?
+
+この機能は、ソースまたは操作からのパラメータを設定内のパラメータにバインドします。パラメータに `@ConfigOverride` のアノテーションが付加されていて DSL でその値が指定されていない場合、​_完全に_ 同じ名前のパラメータの設定値が挿入されます。
+
+`@ConfigOverride` アノテーションは、操作メソッドの引数またはソースの項目に適用できます。ただし、設定や接続には使用できません。
+
+たとえば、設定内でパラメータが次のように宣言されているとします。
+
+[source,java,linenums]
+----
+@Parameter
+@Optional(defaultValue = "10")
+int maxRetries;
+----
+
+また、上記の設定が次の操作で使用されているとします。
+
+[source,java,linenums]
+----
+public void request(@Config ConfigType config, @ConfigOverride int maxRetries)
+  // ...
+}
+----
+
+上記の `request` 操作の `maxRetries` パラメータは、いくつかの方法でその値を受け取ることができます。
+
+* `maxRetries` パラメータ設定で指定されたデフォルト値は、操作および設定 (下記の XML を参照) が `maxRetries` の値を _提供しない_ ときに使用される。
++
+[source,xml,linenums]
+----
+<extension:config name="sampleConfig">
+
+<flow name="requestFlow">
+  <extension:request config-ref="sampleConfig">
+</flow>
+----
++
+操作では、`maxRetries` パラメータは `10` のデフォルト値を取得します。
++
+* 設定 (下記を参照) の `maxRetries` に指定された値は、パラメータの値が操作で指定されず、設定内で明示的に指定されているときに使用される。
++
+[source,xml,linenums]
+----
+<extension:config name="sampleConfig" maxRetries=2>
+
+<flow name="requestFlow">
+   <extension:request config-ref="sampleConfig">
+</flow>
+----
++
+操作では、`maxRetries` は値 `2` を取得します。
++
+* 操作の `maxRetries` パラメータに指定された値は、このパラメータが DSL に明示的に追加されたときに使用される。
++
+[source,xml,linenums]
+----
+<extension:config name="sampleConfig" maxRetries=2>
+
+<flow name="requestFlow">
+   <extension:request config-ref="sampleConfig" maxRetries=5>
+</flow>
+----
++
+操作では、`maxRetries` パラメータは値 `5` を取得します。
+
+この機能は、設定で指定された値を変更しません。設定値をパラメータに挿入するか、指定された値を保持するだけです。
+
+== 設定の上書き要件
+
+設定パラメータを上書きするための要件はいくつかあります。
+
+* 設定のパラメータの名前と型は、`@ConfigOverride` のアノテーションが付加されているものと同じ必要がある。
+
+* 操作に `@ConfigOverride` のアノテーションが付加されたパラメータがある場合、パラメータとして対応する設定も含まれる必要がある。
+
+* ソースに `@ConfigOverride` のアノテーションが付加された項目がある場合、項目として対応する設定も含まれる必要がある。
+
+== パラメータグループ内の設定の上書きパラメータ
+
+このアノテーションは、次のように設定内の `ParameterGroup` に属する `Parameter` を参照するためにも使用できます。
+
+[source,java,linenums]
+----
+public class ConfigType{
+
+  @ParameterGroup(name = "Strategy")
+  private RetryStrategy retryStrategy;
+
+  // ... Parameter getters
+}
+----
+
+[source,java,linenums]
+----
+public class RetryStrategy{
+
+  @Parameter
+  private int maxRetries;
+
+  @Parameter
+  private String retriesExhaustedMessage;
+
+  // ... Parameter getters
+}
+----
+
+この操作は、`RetryStrategy` クラス内の `maxRetries` を参照する `@ConfigOverride` を使用します。
+
+[source,java,linenums]
+----
+public void request(@Config ConfigType config, @ConfigOverride int maxRetries)
+  // ...
+}
+----
+
+== POJO を使用した設定の上書き
+
+設定で、POJO であるパラメータを上書きできます。操作またはソース内の
+POJO パラメータのコンテンツは、設定によって完全に定義されるか、操作によって完全に定義されます。つまり、部分的に入力された POJO を定義し、残りの POJO に設定値が挿入されることは期待できません。
+
+使用する値を決定するロジックは、単純な Java 型の場合と同じです。
+
+== デフォルト値のない設定パラメータ
+
+省略可能な設定パラメータにはデフォルト値がないため、`@ConfigOverride` でそれを参照する操作またはソースパラメータでは、その値はデフォルトで null になります。
+
+次の例のパラメータは、設定内で宣言されています。
+
+[source,java,linenums]
+----
+@Parameter
+@Optional
+private String retriesExhaustedMessage;
+----
+
+次の例では、操作に設定パラメータと設定の上書きパラメータがあります。
+
+[source,java,linenums]
+----
+public void request(@Config ConfigType config, @ConfigOverride String retriesExhaustedMessage)
+  // ...
+}
+----
+
+設定および操作で `retriesExhaustedMessage` が指定されていない場合、その値は null になります。
+
+== 設定の上書き例
+
+このセクションでは、`@ConfigOverride` を使用した簡単な例を示します。
+
+設定の定義は次のとおりです。
+
+[source,java,linenums]
+----
+@Configuration(name = "config")
+@Operations({AmqpConsume.class, AmqpPublish.class, AmqpPublishConsume.class, })
+public class AmqpConfig {
+
+  @Parameter
+  @Expression(NOT_SUPPORTED)
+  @Optional(defaultValue = "*/*")
+  private String contentType;
+
+
+  @Expression(NOT_SUPPORTED)
+  @ParameterGroup(name = "Consumer Config", showInDsl = true)
+  private AmqpConsumerConfig consumerConfig;
+
+
+  // ... All parameter getters
+
+}
+----
+
+次の例では、`AmqpConsumerConfig` クラスに `@ConfigOverride` アノテーションによって参照されるパラメータがあります。
+
+[source,java,linenums]
+----
+public final class AmqpConsumerConfig {
+
+  @Parameter
+  @Optional(defaultValue = "IMMEDIATE")
+  @Expression(NOT_SUPPORTED)
+  private AckMode ackMode;
+
+  @Parameter
+  @Optional(defaultValue = "false")
+  @Expression(NOT_SUPPORTED)
+  private boolean noLocal;
+
+  @Parameter
+  @Optional(defaultValue = "false")
+  @Expression(NOT_SUPPORTED)
+  private boolean exclusiveConsumers;
+
+  @Parameter
+  @Optional(defaultValue = "4")
+  @Expression(NOT_SUPPORTED)
+  private int numberOfConsumers;
+
+  // ... All parameter getters
+}
+----
+
+次のソースには、`AmqpConfig`、および `ConfigOverride` アノテーションが付加されたパラメータがあります。
+
+[source,java,linenums]
+----
+@Alias("listener")
+@EmitsResponse
+@MetadataScope(outputResolver = AmqpOutputResolver.class)
+public class AmqpListener extends Source<Object, AmqpMessageAttributes> {
+
+
+  @Connection
+  private ConnectionProvider<AmqpTransactionalConnection> connectionProvider;
+
+  private AmqpTransactionalConnection connection;
+
+  @Config
+  private AmqpConfig config; // <1>
+
+  @Parameter
+  private String queueName;
+
+  @Parameter
+  @ConfigOverride
+  private AckMode ackMode; // <2>
+
+  @Parameter
+  @ConfigOverride
+  private int numberOfConsumers; // <2>
+
+  @Parameter
+  @Optional
+  private String consumerTag;
+
+
+  @Override
+  public void onStart(SourceCallback<Object, AmqpMessageAttributes> sourceCallback) throws MuleException {
+    // ...
+  }
+  // ...
+  @Override
+  public void onStop() {
+    // ...
+  }
+  // ...
+}
+----
+
+<1> `@ConfigOverride` アノテーションが付加されたパラメータを上書きする値を指定する設定。
+
+<2> 操作で指定されていないパラメータは、​_完全に_ 同じ名前のパラメータの設定値を継承します。これらの名前のパラメータは `ParameterGroup` に属します。
+
+次の例は、上書きの動作を示しています。
+
+[source,xml,linenums]
+----
+<amqp:config name="config">
+ <amqp:connection host="localhost" port="5671" virtualHost="/" username="guest" password="guest"/>
+ <amqp:consumer-config numberOfConsumers="16" /> // <1>
+</amqp:config>
+
+<flow name="amqpStatisticsListen">
+  <amqp:listener config-ref="config" queueName="statisticsQueue" numberOfConsumers="1"/> // <2>
+  <!-- process statistics -->
+  <logger level="INFO" message="#[payload]"/>
+</flow>
+----
+
+<1> 設定では、`numberOfConsumers` は `16` に明示的に設定されていますが、`ackMode` はデフォルト値を取得します。
+<2> ソースでは、`numberOfConsumers` が指定されているため、値 `1` を取得します。`ackMode` は指定されていないため、設定からの値 `IMMEDIATE` を取得します。

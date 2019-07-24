@@ -1,0 +1,167 @@
+= エラー定義
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: エラー, sdk, エラー処理, 操作, try, catch, エラー時, 伝播
+
+Mule では、エラーとは、何か問題が発生したことを伝達し、意味のある情報を提供することで、ユーザがスローされたエラーの種類に応じて修正措置を取ることができるようにする方法です。
+
+詳細は、xref:4.1@mule-runtime::error-handling.adoc[「エラー処理について」]を参照してください。
+
+
+== モジュールエラーの定義
+
+最初のステップは、モジュールによってスローされる可能性があるすべてのエラーを定義することです。これを行うには、`ErrorTypeDefinition` インターフェースを実装する `enum` を定義します。
+この `enum` で定義された各値はエラーとみなされます。
+
+[source,java,linenums]
+----
+public enum SimpleError implements ErrorTypeDefinition<SimpleError> {
+      INVALID_PARAMETER,
+      TIME_OUT,
+      NOT_ALLOWED
+}
+----
+
+=== エラー階層
+
+// TODO add link to mule error handling docs
+// As explained in <<_the_mule_doc_that_talks_about_mule_errors#erew, Mule Errors>>,
+// the Errors have hierarchy in the same way that Java Exceptions are defined,
+// and the Module errors can define that hierarchy in the `ErrorTypeDefinition` enum.
+
+モジュールエラーは、同じモジュールのエラー (同じ `enum` の値) または Mule エラーからのみ継承できます。Mule エラーは、
+`org.mule.runtime.extension.api.error.MuleErrors` で定義されます。
+
+親エラーを定義していないエラーは、自動的に `MULE:ANY` から継承されます。
+
+[source,java,linenums]
+----
+public enum HierarchalError implements ErrorTypeDefinition<HierarchalError> {
+    INVALID_PARAMETER,
+    TIME_OUT,
+    NOT_ALLOWED,
+    ILLEGAL_ACTION(NOT_ALLOWED),
+    BAD_CREDENTIALS(MuleErrors.CONNECTIVITY);
+
+    private ErrorTypeDefinition<? extends Enum<?>> parent;
+
+    HierarchalError(ErrorTypeDefinition<? extends Enum<?>> parent) {
+        this.parent = parent;
+    }
+
+    HierarchalError() {
+    }
+
+    @Override
+    public Optional<ErrorTypeDefinition<? extends Enum<?>>> getParent() {
+        return Optional.ofNullable(parent);
+    }
+}
+----
+
+=== モジュールのエラーの登録
+
+`@Extension` アノテーションが付加されたクラスは、モジュールが処理するエラーを示すために `@Error` のアノテーションが付加されている必要があります。このアノテーションは、定義されたエラーを含む `ErrorTypeDefinition` `enum` を参照します。
+
+[source,java,linenums]
+----
+@Extension(name = "Foo")
+@ErrorTypes(HierarchalError.class)
+@Xml(prefix = "test-connector")
+public class FooExtension {
+  // Content
+}
+----
+
+== スローされる可能性があるエラーの指定
+
+モジュールで発生する可能性があるすべてのエラーを宣言したら、それらをスロー
+する可能性がある操作にエラーをバインドする情報を提供する必要があります。
+
+これを行うには、`ErrorTypeProvider` を実装する必要があります。これは、操作によってスロー
+される可能性があるエラーを伝達するクラスです。
+
+[source,java,linenums]
+----
+public class ExecuteErrorsProvider implements ErrorTypeProvider {
+    @Override
+    public Set<ErrorTypeDefinition> getErrorTypes() {
+        HashSet<ErrorTypeDefinition> errors = new HashSet<>();
+        errors.add(HierarchalErrors.INVALID_PARAMETER);
+        errors.add(HierarchalErrors.BAD_CREDENTIALS);
+        errors.add(HierarchalErrors.ILLEGAL_ACTION);
+        return errors;
+    }
+}
+----
+
+`ErrorTypeProvider` を定義したら、それを適切な操作にバインドする
+必要があります。次のように、操作レベルで `@Throws` アノテーションを使用してバインドします。
+
+[source,java,linenums]
+----
+@Throws(ExecuteErrorsProvider.class)
+public void execute(){
+  // operation body
+}
+----
+
+Studio または Flow Designer で、`@Throws` アノテーションが付加された操作は、その操作がスローする可能性があるエラーについてのヒントをユーザに提供します。
+
+image::studio-errors.gif[align="center"]
+
+XML は次のようになります。
+
+[source,xml,linenums]
+----
+<flow name="flowName">
+  <try>
+    <test-connector:execute/>
+    <error-handler >
+      <on-error-continue type="TEST-CONNECTOR:ILLEGAL_ACTION">
+        <logger level="INFO" message="#[error]"/>
+      </on-error-continue>
+    </error-handler>
+  </try>
+</flow>
+----
+
+== エラーのスロー
+
+エラーは、特定のエラーにバインドされている Java 例外の Mule 表現です。
+
+エラーと例外の間に静的なバインドはありません。エラーを伝達
+するには、操作が `org.mule.runtime.extension.api.exception.ModuleException` または
+このクラスの子例外をスローし、コンストラクタ内でスローする目的の `ErrorTypeDefinition` を示す必要があります。
+
+[source,java,linenums]
+----
+@Throws(ExecuteErrorsProvider.class)
+public void execute(){
+  try {
+      throw new IllegalStateException();
+  } catch (IllegalStateException e){
+      throw new ModuleException(HierarchalErrors.ILLEGAL_ACTION, e);
+  }
+}
+----
+
+また、このロジックを新しい例外クラス内にラップすることをお勧めします。
+
+[source,java,linenums]
+----
+public final class IllegalActionException extends ModuleException {
+
+  public IllegalActionException(Exception cause) {
+    super(HierarchalErrors.ILLEGAL_ACTION, cause);
+  }
+}
+----
+
+WARNING: 操作の `ErrorTypeProvider` で宣言されていないエラーをスローすると、
+予期せぬエラーの例外が発生します。操作で宣言されていないエラーをスローすることはできません。
+
+//TODO: change link to mule error handlers
+// === More information
+// To see how you can catch errors and take actions within your flows, please head to <<_the_mule_doc_that_talks_about_mule_errors#erew, Mule Error Handling>>

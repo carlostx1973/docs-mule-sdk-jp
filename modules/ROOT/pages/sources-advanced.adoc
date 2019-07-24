@@ -1,0 +1,29 @@
+= 高度なソース設定
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+
+== @ClusterSupport
+
+*バージョン 1.1 以降で使用可能*
+
+Mule Runtime がクラスタモードで実行されている場合、このアノテーションを使用してソースの動作を指定できます。次に例を示します。
+
+[source,java,linenums]
+----
+@ClusterSupport(DEFAULT_PRIMARY_NODE_ONLY)
+public class JmsListener extends Source<Object, JmsAttributes> {
+// ...
+}
+----
+
+`@ClusterSupport` アノテーションは、次の値を取ることができる `SourceClusterSupport` 型のパラメータを取ります。
+
+* NOT_SUPPORTED: ソースノードでクラスタモードがサポートされないため、プライマリノードでのみ実行されます。プライマリノードがクラッシュすると、新しいプライマリノードが指定され、ソースはそのノードで開始されます。
+* DEFAULT_ALL_NODES: デフォルトではすべてのクラスタノードで実行されますが、ユーザはプライマリノードのみで実行するように選択できます。
+* DEFAULT_PRIMARY_NODE_ONLY: デフォルトではプライマリノードでのみ実行されますが、ユーザはすべてのノードで実行するように選択できます。
+
+`NOT_SUPPORTED` 以外の値を選択すると、`primaryNodeOnly` という名前のパラメータが自動的に追加されるため、ソースをすべてのノードで実行する必要があるのか、プライマリノードでのみ実行する必要があるのかを設定できます。
+
+[TIP]
+このパラメータが追加された場合、省略可能になり、そのデフォルト値は選択したクラスタサポートモードによって異なります。

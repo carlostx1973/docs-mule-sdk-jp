@@ -1,0 +1,104 @@
+= Java 用 Mule SDK 入門
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, create, 新規, プロジェクト, 取得, 開始
+
+最初の Mule SDK プロジェクトはわずか数ステップで作成できます。
+
+* 必要なソフトウェアをインストールする。
+* Maven でプロジェクトを生成して調べる。
+* IDE をセットアップする。
+* 生成したプロジェクトを構築する。
+* コネクタまたはモジュールを開発する。
+* Anypoint Studio でコネクタまたはモジュールを実行する。
+
+SDK には、新しいプロジェクトを作成するための Maven プラグインと Maven アーキタイプが用意されています。アーキタイプは、新しいプロジェクトが一貫した構造を持ち、推奨されるプラクティスを採用していて、実験的に使用できる要素がプロジェクトに含まれることを保証する、プロジェクトのテンプレートです。
+
+[[setup]]
+== 必須ソフトウェアのインストール
+
+ローカル環境に以下のツールをインストールして、正しく動作することを確認します。
+
+* Java コードをコンパイルして構築するための Java Development Kit 8 (JDK 8)。
+
+* プロジェクトの構築を管理するための Apache Maven バージョン 3.3.9 以降。
+
+[[setup_ide]]
+
+== Maven プラグインを使用したプロジェクトの生成
+
+`generate` コマンドを実行して、Maven アーキタイプをベースとした拡張プロジェクトを作成します。
+
+----
+mvn org.mule.extensions:mule-extensions-archetype-maven-plugin:1.2.0:generate
+----
+
+必須項目値を入力するように求められた後に、新しいプロジェクトが生成されます。
+
+== 生成されたプロジェクトの探索
+
+生成されたプロジェクトには、基本の Mule <<module-structure#,モジュール構造>>にいくつかの基本クラス、ダミー実装、そして生成されたモジュールを使用する実行中のテストが 2 つ含まれています。
+
+このプロジェクトは Maven プロジェクトであるため、Maven が構築を実行するために使用するすべての情報と設定の詳細が格納された `pom.xml` ファイルが入っています。この生成された POM ファイルは、すべての Mule モジュールプロジェクトの共通設定とデフォルトがすべて入った、モジュールの親 POM から継承しています。
+
+[source,xml,linenums]
+----
+<parent>
+  <groupId>org.mule.extensions</groupId>
+  <artifactId>mule-modules-parent</artifactId>
+  <version>1.1.3</version>
+</parent>
+----
+
+== IDE のセットアップ
+
+SDK が機能するためには、コマンドラインパラメータの `-parameters` を Java コンパイラに渡す必要があります。
+
+=== IntelliJ での開発
+
+IntelliJ を使用している場合は、次の手順を実行します。
+
+. `Preferences > Build, Execution, Deployment > Compiler > Java Compiler` に移動します。
+. `-parameters` を `Additional command line parameters` セクションに追加します。
+
+image::intellij-config.gif[600,600]
+
+== プロジェクトの構築
+
+プロジェクトが生成されたら、プロジェクトを構築します。
+
+----
+mvn clean install
+----
+
+このコマンドは、プロジェクトをコンパイルし、テストを実行して、プロジェクトをローカル Maven リポジトリにインストールします。
+
+== カスタムモジュールコードの開発
+
+`@Extension` アノテーションが付加されたクラスを探して、<<module-structure#,モジュール構造と>>モジュールに追加できる各要素を調べてください。これらの要素は、コネクタの変更に使用します。
+
+== コネクタの Studio への追加
+
+コネクタが動作するようになったら、Anypoint Studio で試してみましょう。
+
+Mule アプリケーションの `pom.xml` ファイルを開いて、`<dependency>` にコネクタの `groupId`、`artifactId`、および `version` を指定してコネクタを追加します。
+
+.例: 連動関係
+[source,xml,linenums]
+----
+...
+<dependencies>
+  ...
+  <dependency>
+    <groupId>org.mule.connector</groupId>
+    <artifactId>mule-connector</artifactId>
+    <version>1.0.0</version>
+    <classifier>mule-plugin</classifier>
+  </dependency>
+  ...
+</dependencies>
+...
+----
+
+NOTE: Java 用 SDK ではバージョンごとに異なる機能が用意されています。xref:choosing-version.adoc[「SDK バージョンの選択」]を参照して、コネクタに適切なバージョンを選択してください。

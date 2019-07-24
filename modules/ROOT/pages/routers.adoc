@@ -1,0 +1,101 @@
+= Mule SDK を使用したルータの作成
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, ルータ, ルータ
+
+概念上、ルータは多くの実行可能なルートと一連のパラメータ (1 つルートまたはすべてのルートの実行を処理するパラメータ、あるいはどのルートの実行も処理しないパラメータ) を受け取ることができる<<operations#,操作>>です。
+
+複数の実行パスの候補を受け取る場合、ルートを使用する必要があります。ルートのパラメータを使用すると、含まれているプロセッサを実行する必要があるかどうかを判断できます。ステレオタイプは、含まれているチェーンのステレオタイプを定義するためにルートの宣言で使用できます。要素の DSL コンテンツには、パラメータ化された<<operations#,操作>>が含まれないため、ルートでは複雑なパラメータをインラインで定義できません。
+
+== ルートの定義
+
+まず、`Route` 基本クラスを拡張して、モジュールで 1 つ以上のルートを宣言する必要があります。
+
+[source,java,linenums]
+----
+public class WhenRoute extends Route {
+
+  @Parameter
+  @Optional
+  private boolean shouldExecute;
+
+  public boolean shouldExecute() {
+    return shouldExecute;
+  }
+
+}
+----
+
+== ルータの宣言
+
+次に、いずれかのモジュールの<<operations#,操作>>として、ルータメソッドを宣言します。`RouterCompletionCallback` と共に 1 つ以上の `Route` 実装を受け取る操作は、ルータとして登録されます。
+
+[source,java,linenums]
+----
+@Extension(name = "Docs")
+@Operations(ChoiceRouter.class)
+public class DocsModule {
+
+}
+----
+
+`ChoiceRouter` クラスは、次のメソッドを定義します。
+
+[source,java,linenums]
+----
+public void choice(WhenRoute when,
+                   @Optional OtherwiseRoute otherwise,
+                   RouterCompletionCallback callback) {
+
+  if (when.shouldExecute()) {
+    when.getChain().process(callback::success, (error, previous) -> callback.error(error));
+
+  } else if (otherwise != null && otherwise.shouldExecute()) {
+    otherwise.getChain().process(callback::success, (e, r) -> callback.error(e));
+
+  } else {
+    callback.success(Result.builder().build());
+  }
+}
+----
+
+上記では、ルータの宣言方法と、設定に基づいてどのようにルートが実行されるのかがわかります。ルートの実行は、各ルート自体がスコープであるかのようにチェーンを介して行われます。
+
+ルータを使用するには、ルータパラメータを設定して、その独自のパラメータで各ルート宣言を追加します。
+
+[source,xml,linenums]
+----
+<flow name="logDecoratorSampleFlow">
+    <docs:choice>
+      <docs:when shouldExecute="#[payload != null]">
+        <http:request config-ref="config" path="/" method="GET"/>
+      </docs:when>
+      <docs:otherwise>
+        <logger message="Payload was null"/>
+      </docs:otherwise>
+    </docs:choice>
+</flow>
+----
+
+これにより、`payload` が null でないたびに `when` ルートに含まれている `http:request` 操作が実行されます。null の `payload` が到達すると、代替の `otherwise` が実行されます。
+
+== Void ルータ
+
+*バージョン 1.1 以降で使用可能*
+
+実行の終了時に実行前と同じイベントやメッセージを残すルータを作成することが必要になる場合もあります。この種のルータは、Void ルータと呼ばれます。
+
+Void ルータを実装するには、メソッドに `RouterCompletionCallback` ではなく `VoidCompletionCallback` 型の引数が必要です。このコールバックは、以前と同じように (`success` および `error` メソッドで) 使用します。ただし、このケースでは `success` でどのパラメータも受け取りません。
+
+== 制限
+
+次の制限が適用されます。
+
+=== 設定と接続には非対応
+
+ルータには、<<operations#,操作>>とは異なる制限があります。定義上、ルータは特定の設定や接続に依存したり、それらを受け取ったりすることはできません。
+
+=== 常に非ブロック
+
+すべてのルータは、その結果を伝えるために `RouterCompletionCallback` を受け取る `void` メソッドとして定義されている必要があります。つまり、すべてのルータはデフォルトで非ブロックになります。

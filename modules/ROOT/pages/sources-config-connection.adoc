@@ -1,0 +1,72 @@
+= メッセージソースでの設定および接続の取得
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, ソース, リスナ, トリガ, config, 接続
+
+== 設定オブジェクトの取得
+
+操作と同様に、ソースはその動作に関するパラメータを取得するために設定を参照できます。そのような設定を取得するには、項目に `@Config` アノテーション (操作引数で使用されるアノテーションと同じ) を付加する必要があります。
+
+[source,java,linenums]
+----
+public class HttpListener extends Source<InputStream, HttpRequestAttributes> {
+
+  @Config
+  private HttpListenerConfig config;
+}
+----
+
+== 接続の取得
+
+ソースで接続が必要な場合 (スケジューラを実装していなければ 99% のコネクタで必要)、接続を取得する必要があります。操作と同様に、`@Connection` アノテーションが使用されますが、主に次の 2 つの点が異なります。
+
+* メソッド引数ではなく項目で使用される。
+* 接続オブジェクトではなく `ConnectionProvider` が挿入される。
+
+[source,java,linenums]
+----
+public class HttpListener extends Source<InputStream, HttpRequestAttributes> {
+
+    @Config
+    private HttpListenerConfig config;
+
+    @Connection
+    private ConnectionProvider<HttpServer> serverProvider;
+
+    @Parameter
+    @Optional(defaultValue = "/")
+    private String path;
+
+    private HttpServer httpServer;
+
+    @Override
+    public void onStart(SourceCallback<InputStream, HttpRequestAttributes> sourceCallback) throws MuleException {
+        httpServer = serverProvider.connect(); // <1>
+
+        server.listen(path).onRequest(request -> { // <2>
+            processRequest(request, sourceCallback); // <3>
+        });
+    }
+
+    @Override
+    public void onStop() {
+        if (httpServer != null) { // <4>
+            serverProvider.disconnect(httpServer); // <5>
+        }
+    }
+}
+----
+
+<1> この例では、`ConnectionProvider` を使用して `HttpServer` を取得しています。一般的な接続プロバイダの場合、適切なホストとポートを使用してすでにサーバが設定されています。
+<2> リモートクライアントが HTTP 要求をサーバにプッシュし、`HttpServer` コンポーネントが各要求のソースを通知します。次に、ソースが `SourceCallback` を使用してメッセージをフローにプッシュします。
+<3> ソースは `processRequest` メソッドを定義して、HTTP 要求を、フローにプッシュできるメッセージに変換する必要があります。その方法については、このドキュメントで後述しますが、例を単純化するために、これが機能すると想定できます。
+<4> `onStop()` メソッドは、リソース (このケースでは `HttpServer`) を解放します。サーバが作成される前に `onStart()` メソッドが失敗した場合に備えて null をチェックします。
+<5> この例では、`ConnectionProvider` の `disconnect()` メソッドを使用してサーバを解放します。
+
+[TIP]
+上記の例は疑似コードです。例が明確かつ簡潔になるように、実際の HTTP コネクタを大幅に簡略化しています。
+
+== 次のステップ
+
+* <<sources-push-message#, メッセージソースからフローへのメッセージのプッシュ>>

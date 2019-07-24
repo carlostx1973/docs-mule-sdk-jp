@@ -1,0 +1,51 @@
+= Mule SDK での関数の寄稿
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, 関数, 関数
+
+DataWeave は、Mule 4 の主要な式言語であり、Mule SDK もそれに準拠しています。そのため、Mule <<operations#,操作>>をコーディングするのと同じように、モジュールのコードから DataWeave に関数を寄稿することができます。カスタム関数を使用することで、新しい方法でコードが再利用できるようになり、単一モジュール内で機能が追加され、宣言方法に関するオーバーヘッドも Mule 操作と比較して非常に少なくて済みます。
+
+
+== 関数の宣言
+
+Extension レベルで `@ExpressionFunctions` アノテーションを使用することで、DataWeave 関数を表す公開メソッドを含むクラスを参照できます。このメソッドのコードは、名前を識別子として DataWeave スクリプトから直接実行されます。
+
+[source,java,linenums]
+----
+@Extension(name = "Docs")
+@ExpressionFunctions(DocsFunction.class)
+public class DocsModule {
+
+}
+----
+
+この例は、`DocsFunction` クラスで次のメソッドを定義しています。
+
+[source,java,linenums]
+----
+public Object xpath(@Optional(defaultValue = PAYLOAD) InputStream item,
+                    String expression){
+    try {
+      return xPathFactory.newXPath().evaluate(expression, documentBuilder.parse(item));
+    } catch (Exception e) {
+      return null;
+    }
+  }
+----
+
+この `xpath` 関数は、DataWeave スクリプト内から使用して、_モジュールの名前空間内で_​参照できます。
+
+次の例では XML を読み取って、新しい `xpath` 関数を使用して XPath 検索条件を設定しています。
+
+[source,xml,linenums]
+----
+<flow name="xpathFunctionUsingPayloadAsDefault">
+  <file:read path="files/bookstore.xml"/>
+  <set-payload value="#[Docs::xpath("/bookstore/book[price>35]/title")]"/>
+</flow>
+----
+
+== 制限: 設定と接続には非対応
+
+定義上、関数は特定の<<configs#,設定>>や<<connections#,接続>>に依存したり、それらを受け取ったりすることはできません。

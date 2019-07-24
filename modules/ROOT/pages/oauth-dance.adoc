@@ -1,0 +1,51 @@
+= OAuth 対応モジュールでの OAuth ダンスの実行
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, セキュリティ, oauth
+
+モジュールを使用するための最後のステップは、OAuth ダンスのトリガです。 <<oauth-configuring#, 「OAuth 対応モジュールの設定」>>で説明されている `authorizePath` パラメータは、ブラウザにヒットして OAuth ダンスを開始するために必要な、自動的に作成される HTTP エンドポイントのパスをエンドユーザが設定するために使用します。
+
+ヒント: SDK でサポートされる認証コード許可種別は、Web ブラウザでのユーザの操作を必要とします。
+
+== Multi-Tenancy
+
+OAuth にとってのマルチテナントとは、OAuth ダンスを複数回実行できて、それぞれ取得したトークンを異なるリソース所有者 ID に関連付ける機能を意味します。
+
+エンドユーザは、ダンスの開始時にトークンに割り当てる `resourceOwnerId` を指定する必要があります。たとえば、`authorizePath` を `/authorize` に設定し、ユーザ `sdk_demo` に対してダンスを実行する場合は、次の HTTP パスにヒットする必要があります: `/authorize?resourceOwnerId=sdk_demo`。
+
+ダンスが完了したら、そのユーザ用に取得されたアクセストークンを使用して操作を実行します。それには、モジュール設定の `resourceOwnerId` パラメータで式を使用します。以下に完全な例を示します。
+
+[source,xml,linenums]
+----
+<sfdc:config name="salesforce">
+    <sfdc:oauth-connection display="PAGE" immediate="FALSE" prompt="CONSENT">
+        <sfdc:oauth-authorization-code consumerKey="${sfdc.consumerkey}" consumerSecret="${sfdc.consumersecret}"
+                                       authorizationUrl="http://..." accessTokenUrl="http://..."/
+                                       localAuthorizationUrl="http://localhost:8080/.." scope="this that and those"
+                                       resourceOwnerId="#[vars.ownerId]" /> <!-- <1> -->
+        <sfdc:oauth-callback-config listenerConfig="myHtttpListener"
+                                    callbackPath="/callback"
+                                    authorizePath="/authorize" />  <!-- <2> -->
+</sfdc:config>
+----
+
+<1> `resourceOwnerId` パラメータが式に設定されます。OAuth で保護された操作を実行するたびに、この式が評価され、その値に関連付けられているトークンが使用されます。
+<2> 認証エンドポイント `authorizePath` が設定されます。
+
+=== アクセストークンの無効化
+
+マルチテナントでは、特定の `resourceOwnerId` のアクセストークンを無効化できます。トークンを無効化すると、関連付けられているトークン情報が削除されます。
+
+アクセストークンを無効化できるように、SDK はすべての OAuth 対応モジュールに `unauthorize` という操作を自動的に追加します。上記の例の場合、取得したトークンを無効化するには、次のいずれかのステートメントを使用します。
+
+[source,xml,linenums]
+----
+<sfdc:unauthorize resourceOwnerId="sdk_demo" config-ref="salesforce"/>
+<!-- or -->
+<sfdc:unauthorize resourceOwnerId="#[vars.resourceOwnerId]" config-ref="salesforce" />
+----
+
+== 次のステップ
+
+<<oauth-token-expiration#, 期限切れのアクセストークンの処理>>

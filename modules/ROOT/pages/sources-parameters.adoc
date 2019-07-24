@@ -1,0 +1,45 @@
+= メッセージソースのパラメータの定義
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, ソース, リスナ, トリガ, パラメータ
+
+パラメータは、`Source` クラスの項目として定義されます。操作を定義するときにすべての機能とアノテーション (`@NullSafe`、`@ParameterGroup`、`@TypeResolver` など) を使用できます。次に例を示します。
+
+// Not resolvable in Docs asciidoc:
+// <<null-safe#, `@NullSafe`>>
+// <<parameters#groups, `@ParameterGroup`>>
+// <<input#,`@TypeResolver`>>
+
+[source,java,linenums]
+----
+@EmitsResponse
+public class HttpListener extends Source<InputStream, HttpRequestAttributes> {
+
+    @Config
+    private HttpListenerConfig config;
+
+    @Parameter
+    @Optional(defaultValue = "/")
+    private String path;
+
+    @Parameter
+    private Integer port;
+
+    /**
+    * Comma separated list of allowed HTTP methods by this listener.
+    */
+    @Parameter
+    @Optional
+    @Placement(tab = Placement.ADVANCED_TAB)
+    @Summary("Comma separated list of methods. Leave empty to allow all.")
+    @Example("GET, POST")
+    private String allowedMethods;
+}
+----
+
+これは設定の定義方法と似ていますが、これらのどのパラメータでも式を受け入れないという点が異なります。式のサポートが必要な `@Expression` アノテーションを使用するとエラーになります。
+
+== 次のステップ
+
+* <<sources-lifecycle#, メッセージソースのライフサイクル>>

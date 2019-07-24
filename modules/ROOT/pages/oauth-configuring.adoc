@@ -1,0 +1,211 @@
+= OAuth 対応モジュールの設定
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, セキュリティ, oauth
+
+//TODO: SEE resourceOwnerId
+
+ユーザが OAuth 対応モジュールをどのように使用できるかも重要です。SDK は OAuth プロトコルの複雑さを可能な限り隠しますが、OAuth ダンスなどは隠せません。この問題に対して SDK は、すべての OAuth モジュールの使い方を標準化して、ユーザエクスペリエンスを簡素化することに努めています。
+
+このセクションでは、ユーザがモジュールを使用するための手順について説明します。
+
+== 合成パラメータ
+
+接続プロバイダで明示的に定義されているすべての設定に加えて、SDK はいくつかのパラメータを追加して、適切な動作を挿入します。
+
+[options="header"]
+|===
+|パラメータ名|必須|式|デフォルト値|説明
+|`resourceOwnerId`
+|いいえ
+|SUPPORTED
+|なし
+|ユーザは、関連付けられているアクセストークンと更新トークンを所有するテナントの ID を指定することでマルチテナントをサポートできます。認証ダンスを実行すると、この値によって取得されているトークンの ID が提供されます。コンポーネントで新しい接続が必要な場合は、使用するデフォルトの所有者 ID として使用されます。
+
+|`consumerKey`
+|YES
+|NOT_SUPPORTED
+|なし
+|サービスプロバイダに登録されている OAuth `consumerKey`。
+
+|`consumerSecret`
+|YES
+|NOT_SUPPORTED
+|なし
+|サービスプロバイダに登録されている OAuth `consumerSecret`。
+
+|`authorizationUrl`
+|いいえ
+|NOT_SUPPORTED
+|``@AuthorizationCode` アノテーションで提供されている値。
+|サービスプロバイダの認証 URL。
+
+|`accessTokenUrl`
+|いいえ
+|NOT_SUPPORTED
+|`@AuthorizationCode` アノテーションで提供されている値。
+|サービスプロバイダのアクセストークン URL。
+
+|`state`
+|いいえ
+|REQUIRED
+|なし
+|OAuth ダンスの開始時に送信し、トークンコールバックによってサービスプロバイダから返される文字列値。ダンスの開始とトークンのコールバックを相関させるために使用します。この属性の最も一般的なユースケースはマルチテナントです。
+
+|`scope`
+|いいえ
+|NOT_SUPPORTED
+|`@AuthorizationCode` アノテーションで提供されている値。
+|OAuth ダンス時に要求する Oauth スコープ。指定しない場合、デフォルトのアノテーションのスコープになります。
+
+|`listenerConfig`
+|YES
+|NOT_SUPPORTED
+|なし
+|アクセストークンコールバックエンドポイントをキャッチするリスナの作成に使用する `<http:listener-config />` への参照。
+
+|`callbackPath`
+|YES
+|NOT_SUPPORTED
+|なし
+|アクセストークンコールバックエンドポイントのパス。
+
+|`authorizePath`
+|YES
+|NOT_SUPPORTED
+|なし
+|OAuth ダンスをトリガするローカル HTTP エンドポイントのパス。
+
+|`externalCallbackUrl`
+|いいえ
+|NOT_SUPPORTED
+|なし
+|コールバックエンドポイントがプロキシの背後にあるか、直接 URL 以外でアクセスする必要がある場合、このパラメータを使用して OAuth プロバイダに、コールバックへのアクセスに使用すべき URL を指示します。
+
+|`resourceOwnerId`
+|YES
+|SUPPORTED
+|なし
+|各コンポーネントが他を参照しない場合に使用する必要がある `resourceOwnerId`。
+
+|`objectStore`
+|いいえ
+|NOT_SUPPORTED
+|なし
+|各リソース所有者 ID のデータの保存に使用するオブジェクトストアへの参照。指定しない場合、Runtime は自動的にデフォルトのオブジェクトストアをプロビジョニングします。
+
+|`before`
+|いいえ
+|NOT_SUPPORTED
+|なし
+|OAuth ダンスを開始する直前に実行するフローの名前 (<<before_flow,「事前フロー」>>を参照)。
+
+|`after`
+|いいえ
+|NOT_SUPPORTED
+|なし
+|`accessToken` が受信された直後に実行するフローの名前 (<<after_flow,「事後フロー」>>を参照)。
+|===
+
+== 式の使用について
+
+上記の表には、式を受け入れる多くの合成パラメータが示されています。式を使用することで、通常のパラメータで式を使用するのと同じ効果が得られ、動的なパラメータ設定を可能にします。
+
+== OAuth 接続 DSL
+
+生成される DSL は次のようになります。
+
+[source,xml,linenums]
+----
+<sfdc:config name="salesforce">
+    <sfdc:oauth-connection display="PAGE" immediate="FALSE" prompt="CONSENT">
+        <sfdc:oauth-authorization-code consumerKey="${sfdc.consumerkey}" consumerSecret="${sfdc.consumersecret}" authorizationUrl="http://..."
+accessTokenUrl="http://..."/
+localAuthorizationUrl="http://localhost:8080/.." scope="this that and those" resourceOwnerId="#[ownerId]"
+before="myBeforeFlow" after="myAfterFlow" />
+        <sfdc:oauth-callback-config listenerConfig="myHtttpListener" callbackPath="/callback" authorizePath="/authorize" />
+        <sfdc:oauth-store-config objectStore="oauthObjectStore" />
+</sfdc:config>
+----
+
+* 他のすべてのプロバイダと同様に、通常パラメータと OAuth パラメータはすべて接続プロバイダレベルで示されています。
+* 認証コード許可種別に関連したパラメータ (`consumerKey`、`consumerSecret`、`authorizationUrl`、`accessTokenUrl`、`localAuthorizationHost`、`localAuthorizationPort`、`localAuthorizationPath`、`before`、`after`、`scope`、`defaultResourceOwnerId`) は、`<oauth-authorization-code>` という子要素に配置されます。
+* コールバックに関連したパラメータは、`<oauth-callback-config>` という子要素に配置されます。
+* オブジェクトストアに関連したパラメータは、`<oauth-store-config>` という子要素に配置されます。
+
+== ダンス前後のカスタムロジック
+
+OAuth ダンスを開始する直前やダンスが完了した直後に、エンドユーザが何らかのランダムロジックを実行する必要が生じることがよくあります。たとえば、指定された所有者 ID が正常にオンボードされたことを外部システムに通知したり、活動ログを保存したり、といったユースケースです。
+
+認証プロセスは、自動的に作成されるエンドポイントをヒットすることでトリガされるため、`<oauth-authorization-code>` 子要素には `before` パラメータと `after` パラメータがあります。
+
+これらの省略可能なパラメータは、OAuth ダンスの前または後に呼び出す `<flow>` の名前を指定します。
+
+[[before_flow]]
+=== 事前フロー
+
+事前フローは、OAuth ダンスが開始される直前に実行されます。フローに送信されるイベントのペイロードは、`AuthorizationCodeRequest` のインスタンスであり、次のような不変の POJO となります。
+
+[source,java,linenums]
+----
+public interface AuthCodeRequest {
+
+  /**
+   * @return The id of the user being authenticated
+   */
+  String getResourceOwnerId();
+
+  /**
+   * @return The scopes that were requested
+   */
+  Optional<String> getScopes();
+
+  /**
+   * @return The OAuth state that was sent
+   */
+  Optional<String> getState();
+
+  /**
+   * @return The external callback url that the user configured or {@link Optional#empty()} if none was provided
+   */
+  Optional<String> getExternalCallbackUrl();
+}
+----
+
+ユーザは、必要に応じてカスタムロジックをこのフローで自由に実行できます。特に、フロー変数を設定するのに便利です (<<after_flow,「事後フロー」>>を参照)。
+
+[[after_flow]]
+=== 事後フロー
+事後フローは、アクセストークンを受け取って格納した直後に実行されます。このフローは、事前フローの結果に相当するイベント (事前フローが定義されていない場合は空のイベント) で実行されますが、ペイロードは `ConnectionProvider` に挿入されたのと同じ `AuthorizationCodeState` オブジェクトに置換されます。ただし、設定されている変数はそのまま残ります (事前フローが定義されていない場合は空になる)。
+
+== カスタム ObjectStore の設定
+
+取得したアクセストークンは `ObjectStore` に保存されます。デフォルトでは、SDK はトークンをアプリケーションのデフォルトストアに保存しますが、ユーザは次のようにカスタムオブジェクトストアを定義することもできます。
+
+[source,xml,linenums]
+----
+<os:object-store name="tokenStore" // <1>
+   entryTtl="1"
+   entryTtlUnit="HOURS"
+   maxEntries="100"
+   persistent="true"
+   expirationInterval="30"
+   expirationIntervalUnit="MINUTES" />
+
+<sfdc:config name="salesforce">
+    <sfdc:oauth-connection display="PAGE" immediate="FALSE" prompt="CONSENT">
+        <sfdc:oauth-authorization-code consumerKey="${sfdc.consumerkey}" consumerSecret="${sfdc.consumersecret}"
+        authorizationUrl="http://..." accessTokenUrl="http://..."/
+        localAuthorizationUrl="http://localhost:8080/.." />
+        <sfdc:oauth-callback-config listenerConfig="myHtttpListener" callbackPath="/callback" authorizePath="/authorize" />
+        <sfdc:oauth-store-config objectStore="tokenStore" /> // <2>
+</sfdc:config>
+----
+
+<1> カスタムストアを定義します。
+<2> モジュールの設定からそのストアを参照します。
+
+== 次のステップ
+
+<<oauth-dance#, OAuth 対応モジュールでの OAuth ダンスの実行>>

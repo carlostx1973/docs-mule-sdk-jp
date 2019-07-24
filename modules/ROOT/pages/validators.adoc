@@ -1,0 +1,112 @@
+= Mule SDK のバリデータ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: 検証, バリデータ, mule, sdk
+
+バリデータとは、メッセージを変更することなく Mule メッセージを検証する操作です。バリデータでは次の効果をもたらすことができます。
+
+* バリデータで課された条件が満たされた場合、フローは続行し、Mule メッセージは変更されません。
+* バリデータで課された条件が満たされない場合、エラーがスローされます。
+
+== バリデータの要件は?
+
+バリデータになるには、操作は次の要件を満たす必要があります。
+
+* `@Validator` アノテーションによって到達される必要があります。クラスレベルまたはメソッドレベルで割り当てることができます。`@Validator` アノテーションをクラスレベルで使用すると、すべての公開メソッドがバリデータとしてマークされます。
+* `void` を返す必要があります。
+* `MULE:VALIDATION` (またはこの拡張) である 1 つ以上のエラーをスローする必要があります。検証に失敗した場合、バリデータは Mule 検証エラーまたはその子をスローする必要があります。
+
+`@Validator` アノテーション付きのメソッドはステレオタイプ `ValidatorStereotype` に属します。コンポーネントは 2 つのステレオタイプを持つことができないため、複数のステレオタイプをメソッドに割り当てることはできません。
+
+バリデータは、操作と同じ UX を共有します。Studio で使用するモジュールを追加すると、バリデータがパレットに表示されます。バリデータをフローに追加すると、そのパラメータは操作の場合と同様に割り当てられます。
+
+== バリデータの作成方法
+
+次の例では、単純なバリデータを作成する方法を示します。これは、`balance` という名前の単純な拡張機能を作成します。
+
+[source,java,linenums]
+----
+@Operations({BalanceOperations.class})
+@Extension(name = "balance")
+@ErrorTypes(BalanceError.class)
+public class BalanceExtension {
+
+}
+----
+
+以下の `BalanceOperations` クラスは、`@Validator` アノテーションが付加された検証メソッドを追加します。このメソッドは、汎用的な検証エラー種別から取得するエラー種別をスローします。`BalanceOperations` クラスに `@Validator` アノテーションを付加することもできますが、これを行うと、その中の他の操作がバリデータとしてフラグ付けされます。
+
+[source,java,linenums]
+----
+public class BalanceOperations {
+  @Validator
+  @Throws(BalanceErrorsProvider.class)
+  public void hasSufficientFunds(Integer balance, Integer price) throws Exception {
+    if (price > balance){
+      throw new ModuleException(BalanceError.INSUFFICIENT_FUNDS, new IllegalArgumentException("There is not enough money to make the transaction"));
+    }
+  }
+}
+----
+
+次の例では、検証が失敗した場合にスローするエラーを作成します。これには検証の失敗に応じた名前が付いています。
+
+[source,java,linenums]
+----
+public enum BalanceError implements ErrorTypeDefinition<BalanceError> {
+  INSUFFICIENT_FUNDS(MuleErrors.VALIDATION);
+
+  private ErrorTypeDefinition<? extends Enum<?>> parent;
+
+  BalanceError(ErrorTypeDefinition<? extends Enum<?>> parent) {
+    this.parent = parent;
+  }
+
+  @Override
+  public Optional<ErrorTypeDefinition<? extends Enum<?>>> getParent() {
+    return Optional.ofNullable(parent);
+  }
+}
+----
+
+バリデータのメソッドには、検証がスローできるすべてのエラー種別を認識する `ErrorTypeProvider` が必要です。この例では、メソッドがスローできるエラーの種別は *BALANCE:INSUFFICIENT_FUNDS* のみであることを指定する `ErrorTypeProvider` を作成します。
+
+[source,java,linenums]
+----
+public class BalanceErrorsProvider implements ErrorTypeProvider {
+  @Override
+  public Set<ErrorTypeDefinition> getErrorTypes() {
+    HashSet<ErrorTypeDefinition> errors = new HashSet<>();
+    errors.add(BalanceError.INSUFFICIENT_FUNDS);
+    return errors;
+  }
+}
+----
+
+== バリデータの使用方法
+
+上記で作成したバリデータをフローで使用するとします。構文は操作の場合と同じです。`balance` と `price` は必須パラメータのため、これらを割り当てる必要があります。この場合、変数 `price` と `balance` の値を使用して検証が実行されますが、ここでは任意の式を使用できます。
+
+[source,xml,linenums]
+----
+<balance:has-sufficient-funds balance="#[vars.balance]" price="#[vars.price]"/>
+----
+
+== バリデータおよび「all」スコープ
+
+バリデータはステレオタイプ `ValidatorStereotype` のため、検証モジュールから `all` スコープでバリデータを使用できます。
+
+次の例では、検証モジュールからバリデータを使用します。また、これは、値が実際に正であるかどうかを検証する、`isPositive` という名前のバリデータを持つ数値拡張があることを想定します。
+
+[source,xml,linenums]
+----
+<validation:all>
+  <validation:is-not-blank-string value="#[vars.buyerName]"/>
+  <number:is-positive value="#[vars.price]"/>
+  <number:is-positive value="#[vars.balance]"/>
+  <balance:has-sufficient-funds balance="#[vars.balance]" price="#[vars.price]"/>
+</validation:all>
+----
+
+この例では、空の文字列ではない `buyerName` 変数があることを確認します。その後、`price` と `balance` の両方の変数に正の値が含まれていることを確認します。最後にバリデータを使用して口座に十分な残高があるかどうかを確認します。

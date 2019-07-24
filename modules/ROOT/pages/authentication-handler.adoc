@@ -1,0 +1,111 @@
+= 認証ハンドラ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+
+このハンドラでは、特定の要求に基づいて、暗号化および着信認証に使用される現在のコンテキストの認証を設定できます。
+
+== 認証ハンドラの使用方法
+
+操作に `AuthenticationHandler` 型のパラメータを追加すると、現在のコンテキストの認証ハンドラインスタンスが実行時に挿入されます。このインスタンスを使用して現在の認証 (存在する場合) を確認し、新しい認証を設定できます。
+
+認証ハンドラインターフェースには次のメソッドがあります。
+
+* `createCredentialsBuilder`: `Credentials` インスタンスの作成に使用されるビルダーを返す。
+
+* `createAuthentication`: `Credentials` のインスタンスが指定されたときに、`Authentication` インスタンスを作成する。
+
+* `setAuthentication`: `Authentication` が指定されたときに、その値を現在のコンテキストの認証として設定する。必要に応じて、`SecurityManager` に追加されるセキュリティプロバイダ (名前) のリストを指定することもできます。
+
+* `getAuthentication`: 現在のコンテキストから `Authentication` を返す。現在のコンテキストに `Authentication` がない場合もあります。
+
+== 使用例
+
+HTTP 要求を受信した後に、現在のコンテキストの認証ハンドラでログイン情報を認証して保存するとします。このユースケースでは、HTTP コネクタの `basic-security-filter` 操作を使用できます。
+
+次の簡略化された例は、`basic-security-filter` の実装方法を示しています。
+
+[source,java,linenums]
+----
+public class HttpOperations {
+
+  /**
+   * Authenticates received HTTP requests. Must be used after a listener component.
+   */
+  @Throws(BasicSecurityErrorTypeProvider.class)
+  public void basicSecurityFilter(@ParameterGroup(name = "Security Filter") HttpBasicAuthenticationFilter filter,
+                                  AuthenticationHandler authenticationHandler) { // <1>
+    try {
+      filter.authenticate(authenticationHandler);
+    } catch (BasicUnauthorisedException e) {
+      throw new ModuleException(BASIC_AUTHENTICATION, e);
+    } catch (SecurityProviderNotFoundException | SecurityException | UnknownAuthenticationTypeException e) {
+      throw new ModuleException(SERVER_SECURITY, e);
+    }
+  }
+ // ...
+}
+----
+
+<1> この操作には、実行時に挿入される `AuthenticationHandler` パラメータがあります。
+
+[source,java,linenums]
+----
+public class HttpBasicAuthenticationFilter {
+
+  @Parameter
+  private String realm;
+
+  @Parameter
+  @Optional
+  @NullSafe
+  private List<String> securityProviders;
+
+  @Parameter
+  @Optional(defaultValue = "#[attributes]")
+  HttpRequestAttributes attributes; // <1>
+
+  public void authenticate(AuthenticationHandler authenticationHandler)
+      throws SecurityException, SecurityProviderNotFoundException, UnknownAuthenticationTypeException {
+    String header = attributes.getHeaders().get("Authorization".toLowerCase());
+
+    if ((header != null) && header.startsWith("Basic ")) {
+
+      String username = retrieveUsername(header);
+      String password = retrievePassword(header);
+
+
+      Credentials credentials = authenticationHandler.createCredentialsBuilder() // <2>
+          .withUsername(username)
+          .withPassword(password.toCharArray())
+          .build();
+
+      try {
+        Authentication authentication = authenticationHandler.createAuthentication(credentials); // <3>
+        authenticationHandler.setAuthentication(securityProviders, authentication); // <4>
+      } catch (UnauthorisedException e) { // <5>
+        throw new BasicUnauthorisedException(authFailedForUser(username), e);
+      }
+
+    } else if (header == null) {
+      throw new BasicUnauthorisedException(null, "HTTP basic authentication", "HTTP listener");
+    } else {
+      throw new UnsupportedAuthenticationSchemeException("Http Basic filter doesn't know how to handle header " + header));
+    }
+  }
+
+}
+----
+
+<1> ユーザ名とパスワードが取得される場所の `HttpRequestAttributes`。
+
+<2> `Credentials` は、要求から取得した情報を使用して作成されます。
+
+<3> `Authentication` は `Credentials` に基づいて作成されます。
+
+<4> 認証情報が `securityProviders` に対してチェックされ、ハンドラに
+設定されます。
+
+<5> 認証情報が無効な場合、例外がスローされます。
+
+認証ハンドラをパラメータとして持つフロー内に別の操作がある場合、挿入されるインスタンスは、`basic-authentication-filter` 操作で処理されるインスタンスと同じになります。これにより、`getAuthentication` メソッドを使用して、HTTP 要求からログイン情報と共に `Authentication` を取得します。

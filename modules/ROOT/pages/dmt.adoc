@@ -1,0 +1,132 @@
+= DevKit 移行ツール
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, devkit, 移行, 移行, コネクタ
+
+DevKit 移行ツール (DMT) は、Mule 3.x で動作する DevKit で作成されたコネクタから、Mule 4 SDK と互換性のあるプロジェクトへの移行を支援します。
+
+Anypoint コネクタ DevKit は、Mule 4 とは互換性がありません。Mule 3 用の独自の DevKit プロジェクトを開発した場合、それを Mule 4 アプリケーションで使用するには、新しい SDK に移行する必要があります。
+
+== 互換性ルール
+
+コネクタを移行するときは、互換性ルールに注意してください。
+
+* 移行は最新の DevKit バージョン (3.8.0 以降) でのみ保証される。
+* 最新の検証が適用されないコネクタ、または非推奨コンポーネントやアノテーションを使用するコネクタは、移行中に問題が発生した場合に考慮されない。
+* 一部の概念は Mule 4 には存在しない。このツールは、サポートされていないコンポーネントの影響を受ける部分は移行しません。また、MuleSoft が SDK に適用するベストプラクティスに従っていないコードを移行する可能性があります。
+* DataSense モデルなど、Mule 4 では一部の機能が大きく異なります。
+
+次の機能は移行されません。
+
+  * インバウンド/アウトバウンドメッセージプロパティ
+  * Mule メッセージ/イベントを直接操作する機能
+  * 変数を変更または照会する機能
+
+移行後、サポートされなくなった機能に対するモジュールのコードまたは動作の変更が必要な可能性があります。
+
+== DevKit コネクタの移行
+
+DMT はプロジェクトを移行し、自動的に面倒な作業を
+実行します。ただし、移行結果を確認して調整する必要があります。
+
+*プロジェクトを適切に機能させるためには、手動の作業が必要です*。
+
+DMT は次の作業を自動的に実行します。
+
+* 現在のコネクタコードを他の Java ライブラリと同様にラップする、新しい SDK 拡張モデルと互換性のある新しいソースコードを生成する
+* コードの責務をテスト済みのコネクタコードに委任する
+* 生成されたコード内のインラインコメントでエラーをマークし、エラーを解決するための次の手順が説明されたドキュメントを示す
+
+== DMT の実行
+
+. コネクタの `pom.xml` ファイルを開き、`parent` アーティファクトを検索します。
+
++
+[source,xml,linenums]
+----
+<parent>
+  <groupId>org.mule.tools.devkit</groupId>
+  <artifactId>mule-devkit-parent</artifactId>
+  <version>3.9.4</version>
+</parent>
+----
+
+. `artifactId` と `version` の値を変更します。
+
++
+[source,xml,linenums]
+----
+<parent>
+  <groupId>org.mule.tools.dmt</groupId>
+  <artifactId>mule-dmt</artifactId>
+  <version>1.0.0</version>
+</parent>
+----
+
+. `parent` が変更されたため、IDE またはコマンドラインからコネクタを作成します。
+
++
+----
+mvn clean package
+----
+
++
+テストクラスは SDK を使用してコンパイルされないため、実行、移行、コピーは行われません。移行した
+プロジェクトでテストクラスを保持する場合は、プロパティ `-DexcludeTests=false` を使用してコネクタを作成します。
+
++
+----
+mvn clean package -DexcludeTests=false
+----
+
+プロセスが完了したら、`Build Success` メッセージが表示されます。
+生成された拡張プロジェクトは、`_{rootdir}/target/generated-sources/extension_` フォルダ内に置かれます。
+
+image::dmt.png[フォルダ構造]
+
+== サポートされているコンポーネント
+
+DevKit コネクタの次の要素は、新しい拡張表現に移植されています。
+
+* プロセッサ
++
+すべてのプロセッサは、すべて同じクラス内の操作に移行されます。
+プロセッサのパラメータは、操作パラメータに反映される必要があり、
+セットアップする必要がある古いコネクタに存在する設定または挿入された
+項目としての要素もパラメータとして渡される必要があります。
++
+拡張操作についての詳細は、xref:operations.adoc[「SDK 操作ドキュメントリファレンス」]を参照してください。
+
+* ソース
++
+ポーリングソースとトリガによるソースの両方が新しいソースクラスに移行されます。
++
+デフォルトでは、ソースのコードはコンパイルおよび実行されますが、生成されたソースクラスにコメントが追加されるため、最近移行したコネクタの操作性を改善できます。
++
+拡張ソースについての詳細は、xref:sources.adoc[「SDK ソースドキュメントリファレンス」]を参照してください。
+
+* 接続戦略
++
+@Configuration と @ConnectionManagement の両方の戦略が移行されます。
++
+接続についての詳細は、xref:connections.adoc[「SDK での接続」]を参照してください。
+
+* 設定
++
+@Configuration 戦略は CachedConnectionProvider に移行されます。これは、その接続が停止されるまで、すべての操作に対して 1 つの接続インスタンスを提供します。
+
+* 接続管理
++
+@ConnectionManagement 戦略は PoolingConnectionProvider に移行されるため、生成された
+接続はプールされます。接続のキャッシュは維持されるため、将来の要求で必要になったときに再利用できます。
++
+@ConnectionManagement 接続メソッドが「Single Instance」としてマークされている場合、@Configuration 戦略が移行されるときに、それが CachedConnectionProvider に移行されます。
+
+次の要素もサポートされています。
+
+* xref:object-streaming.adoc[ページ設定された操作]
+* xref:metadata.adoc[メタデータ] (メタデータオブジェクトは移行されません。MetadataTypes への手動移行が必要です)
+* xref:connections.adoc[OAuth 接続戦略]
+* xref:parameter-layout.adoc[表示アノテーション]
+* xref:errors.adoc[OnException ハンドラ]

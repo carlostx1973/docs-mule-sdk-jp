@@ -1,0 +1,65 @@
+= 他のモジュールからの型のインポート
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: パラメータ, パラメータ, mule, sdk, dsl, xml, インポート, 型
+
+すべてのモジュールは、モジュールの API の一部である型のセットを宣言できます。この型のセットは、元のモジュールの名前空間の定義を維持したままで、他のモジュールにインポートできます。
+
+他のモジュールからの型のインポートは、多くの場合で役に立ちます。一例を挙げます。
+
+* 特定の認証方法など、型内にバンドルされたロジックを再利用する。
+* 同じプロパティの設定用に同じ API をユーザに公開する。たとえば、同じパラメータを同じ順序で、同じ記述で設定する場合は、異なるモジュールで同じ型を使用することで実現できます。
+
+モジュールの型は 3 ステップで再利用できます。
+
+. `pom.xml` 内の連動関係を、API を使用する `mule-plugin` に追加します。
++
+[source,xml,linenums]
+----
+    <dependency>
+        <groupId>org.mule.connectors</groupId>
+        <artifactId>mule-sockets-connector</artifactId> // <1>
+        <version>${muleSocketsConnectorVersion}</version>
+        <classifier>mule-plugin</classifier> // <2>
+    </dependency>
+----
++
+<1> 型が宣言されているモジュール
+<2> `mule-plugin` 分類子を忘れずに連動関係に追加すること
+
+. インポートする型を参照している Extension クラスで `@Import` を宣言します。
++
+[source,java,linenums]
+----
+@Extension(name = "HTTP")
+@Import(type = TcpClientSocketProperties.class)
+@Import(type = TcpServerSocketProperties.class)
+public class HttpConnector {
+
+}
+----
+
+. パラメータ宣言で型を使用します。
++
+[source,java,linenums]
+----
+@Alias("request")
+public class HttpRequesterProvider implements CachedConnectionProvider<HttpExtensionClient> {
+
+  @Parameter
+  private TcpClientSocketProperties clientSocketProperties;
+
+}
+----
+
+これによって DSL 宣言がどのように変わるかに注意してください。拡張 (この例では `http`) が別の名前空間 (この例では `sockets`) で宣言されたパラメータを受け取ることができるようになりました。
+
+[source,xml,linenums]
+----
+<http:request-connection>
+  <http:client-socket-properties>
+      <sockets:tcp-client-socket-properties connectionTimeout="1000" keepAlive="true" receiveBufferSize="1024"/>
+  </http:client-socket-properties>
+</http:request-connection>
+----

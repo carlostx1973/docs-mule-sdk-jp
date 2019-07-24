@@ -1,0 +1,208 @@
+= 設定オブジェクトの作成
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, config, 設定
+
+設定は、モジュールの全体的な動作に影響する設定可能なパラメータのセットです。
+すべてのモジュールには少なくとも 1 つの設定が必要ですが、必要に応じていくつでも定義できます。
+
+異なる設定では異なるパラメータのセットが提供されるだけでなく、その設定の
+使用時にのみ使用可能な独自の操作、ソース、および接続プロバイダのセットも指定される場合があります。
+
+== 1 つの設定モジュールの定義
+
+最も単純なケースは、設定が 1 つのみのモジュールです。
+便宜上、次のように以前に `@Extension` のアノテーションを付加したいくつかのクラスを
+使用できます。
+
+[source,java,linenums]
+----
+@Extension(name="singleConfig")
+@Operations(Operations.class)
+@Sources(MessageSources.class)
+@ConnectionProviders({BasicAuthConnection.class, OAuthConnection.class})
+public class SingleConfigModule {
+
+  @Parameter
+  private String someParameter;
+
+  @Parameter
+  private Integer numericParameter;
+
+  public String getSomeParameter() {
+    return someParameter;
+  }
+
+  public String getNumericParameter() {
+    return numericParameter;
+  }
+}
+
+----
+
+上記の例は、設定が 1 つのモジュールの完全なスケルトンを示しています。
+拡張をそのすべての操作、ソース、接続などで宣言した同じクラスは、
+設定のパラメータに変換する `@Parameter` アノテーションが付加された項目でも
+強化されていることがわかります。
+
+操作やソースなどの別のコンポーネントが設定にアクセスする必要がある場合、
+`SingleConfigModule` クラスのインスタンスを介してアクセスします。
+
+== 1 つの設定オブジェクトの外部化
+
+コードの編成方法によっては、`@Extension` アノテーションが付加されたクラスを再利用
+することなく、1 つの設定オブジェクトを使用すると役立つ場合があります。これを行う
+理由は、メンテナンス性 (将来、設定の追加が必要になる可能性を考慮)、懸念事項の
+分離、または単に個人的な好みなどがあります。
+
+`@Configurations` アノテーションを使用して、それを実行できます。改良された同じ例は
+次のようになります。
+
+[source,java,linenums]
+----
+@Extension(name="singleConfig")
+@Configurations(Config.class) // <1>
+public class SingleConfigModule {
+}
+
+@Configuration(name="config") // <2>
+@Operations(Operations.class)
+@Sources(MessageSources.class)
+@ConnectionProviders({BasicAuthConnection.class, OAuthConnection.class})
+public class Config {
+
+  @Parameter
+  private String someParameter;
+
+  @Parameter
+  private Integer numericParameter;
+
+  public String getSomeParameter() {
+    return someParameter;
+  }
+
+  public String getNumericParameter() {
+    return numericParameter;
+  }
+}
+----
+
+<1> `@Configurations` アノテーションを使用して、`Config` クラスを参照します。
+<2> 設定として機能し、パラメータおよびその他すべてのコンポーネント
+(操作、接続など) を定義するクラスを定義します。
+
+[TIP]
+`@Configuration` アノテーションでは、設定に名前を付ける必要があります。
+ 設定が 1 つのみのモジュールの場合、`config` という名前をお勧めします。
+
+== 複数の設定の定義
+
+HTTP コネクタを使用した例を説明します。
+
+HTTP プロトコルの実装には、要求のリスンと要求の送信の 2 つの
+側面があります。これらの側面はそれぞれ、非常に異なるパラメータのセットが必要なだけでなく、
+次のことも必要になります。
+
+* 要求をリスンするには、メッセージソースとして機能する `<http:listener />` 要素を定義する必要がある。
+* 要求を送信するには、操作として機能する `<http:request />` 要素が必要。
+
+アプリケーションには多数のリスナ要素が含まれる可能性があるため、接続を確立する
+方法やその他の動作パラメータに関する一般的な設定が含まれる `<http:listener-config />` と
+ペアになっている場合にのみ、要素は機能します。`<http:requester-config />` 要素とペアになっているリクエスタ操作でも
+同様です。
+
+コードは次のようになります。
+
+[source,java,linenums]
+----
+@Extension(name="http")
+@Configurations({HttpListenerConfig.class, HttpRequesterConfig.class}) // <1>
+public class HttpConnector {
+
+}
+
+@Configuration(name="listener") // <2>
+@ConnectionProviders(HttpListenerConnection.class)
+@Sources(HttpListener.class)
+public class HttpListenerConfig {
+
+  /**
+   * Base path to use for all requests that reference this config.
+   */
+  @Parameter
+  @Optional
+  @Expression(NOT_SUPPORTED)
+  private String basePath;
+
+  public String getBasePath() {
+    return basePath;
+  }
+}
+
+@Configuration(name="requester") // <3>
+@Operations(HttpRequester.class)
+@ConnectionProviders(HttpRequesterConnection.class)
+public class HttpRequesterConfig {
+
+  // the requester parameters
+}
+----
+
+<1> `@Extension` アノテーションが付加されたクラスは、2 つの設定を定義します。
+<2> `HttpListener` クラスは、インバウンド接続、およびリスナ機能専用のメッセージソースを定義します。
+<3> `HttpConfig` クラスは、要求操作とアウトバウンド接続種別を定義します。
+
+[TIP]
+今回は、`Configuration` アノテーションで使用される名前が特定のデフォルトに
+従わず、代わりにわかりやすい名前が使用されています。
+
+== 設定名の取得
+
+ログやデバッグのために、この設定インスタンスのアプリケーション上での名前を
+知っていれば役立ちます。この場合、`@RefName` アノテーションを使用できます。このアノテーションは、
+`String` 型の項目で使用する必要があり、同じクラスの 2 つの項目がこのアノテーションを
+持つことはできません。その使用方法の例を次に示します。
+
+この例では、コンポーネントの初期化時にその名前をログに記録する方法を確認できます。
+これにより、異なる設定インスタンスを追跡できます。
+
+[source,java,linenums]
+----
+@Configuration(name="config")
+@Operations(Operations.class)
+public class Config implements Initialisable {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(Config.class);
+
+  @RefName // <1>
+  private String configName;
+
+  @Parameter
+  private String someParameter;
+
+  public String getSomeParameter() {
+    return someParameter;
+  }
+
+  @Override
+  public void initialise(){
+    LOGGER.debug("Initializing config with name: " + configName);
+  }
+
+}
+----
+
+<1> `@RefName` アノテーションは、アプリケーションで使用される設定の名前が
+項目 `configName` に挿入される必要があることを示します。
+
+DSL の具体的な例で、何が起こるかを確認できます。
+
+[source,xml,linenums]
+----
+<my-extension:config name="exampleConfig" someParameter="aParameter">
+----
+
+この場合、変数 `configName` は値「exampleConfig」を取得します。この設定が
+初期化されると、メッセージ `Initializing config with name: exampleConfig` を含む
+ログでこれが示されます。

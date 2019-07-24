@@ -1,0 +1,105 @@
+= メタデータキーパラメータ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, メタデータ, DataSense, キー, 型
+
+//TODO: 1.1 ONLY? NO 1.0 VERSION?
+動的メタデータ構造を記述するには、どの型を表現するのかを知る必要があります。この型の参照を定義するには、記述する型 (Account など) の ID を含む `@MetadataKeyId` パラメータを操作で指定します。この ID は、そのパラメータで定義されているメタデータリゾルバに渡されます。
+
+たとえば、汎用レコードをリモートシステムに保存する操作があるとして、サポートされる型として `Account` や `Organization` を記述しておけば、デザインしやすくなります。この場合は、操作のパラメータの 1 つに ID として `Account` または `Organization` を含む型の参照を定義します。
+このパラメータは、バケットに保存するレコードの Account 構造または Organization 構造 (エンドユーザが使うと決めた方) を記述します。
+
+== メタデータキーのリストの提供
+
+動的メタデータを解決する最も一般的なケースでは、解決される可能性のある各型を特定するキーの動的セットを用意します。エンドユーザが設計時にコネクタを設定する際には、操作を選択してから、動的に入力されるキーをセットから選択すると、そのキーがメタデータ解決の `MetadataKeyId` になります。
+
+動的キーの解決を実装するには、まず `TypeKeysResolver` を宣言します。
+
+[source,java,linenums]
+----
+public class RecordKeysResolver implements TypeKeysResolver {
+
+  @Override
+  public String getCategoryName() {
+    return "Records";
+  }
+
+  @Override
+  public Set<MetadataKey> getKeys(MetadataContext context) throws MetadataResolvingException, ConnectionException {
+     // First we need to obtain the key IDs that will be used.
+     // This is where you'd normally use `context.getConfig()`
+     // or `context.getConnection()` to obtain the entity id's
+     // from a remote service, for this demo the keys will be fixed
+     List<String> keyIds = Arrays.asList("Author_id", "BookList_id", "Book_id");
+
+     HashSet<MetadataKey> keys = new HashSet<>();
+     for (String id: keyIds){
+       // For each possible if, we create a new MetadataKey with that ID
+       MetadataKeyBuilder builder = MetadataKeyBuilder.newKey(id);
+
+       // Then, we add a DisplayName to that MetadataKey,
+       // this will be the name shown in the UI
+       builder.withDisplayName(StringUtils.removeEnd(id, "_id"));
+
+       //finally, add the key to the Set of known MetadataKeys
+       keys.add(builder.build());
+     }
+
+     return keys;
+  }
+
+}
+----
+
+上の例では、MetadataKey の動的セットを作成するのに必要なすべての要素が定義されています。実装するメソッドは `getKeys` で、利用可能なすべてのキーをユーザに出力します。
+
+`Author_id` などの `id` 要素は内部で使用され、表現したい構造に対してすべてのリゾルバにおいて一意である必要があります。`displayName` は、ユーザに表示するキーの名前であるため、わかりやすく読みやすい名前にしてください。
+
+// _TODO Fix broken Image
+// image::<missing>metadata/keys_single_drop.png[MetadataKeys Single Level Dropdown]
+
+リゾルバを定義したら、操作やソースで使用して、リゾルバを特定の `MetadataKeyId` パラメータに関連付けます (<<user_metadatakey,「ユーザ定義の MetadataKey」>>参照)。
+
+[source,java,linenums]
+----
+  public class OperationWithMetadataKey {
+
+    public void create(@MetadataKeyId(RecordKeysResolver.class) String type,
+                       @Config MyConfig config){
+        //...
+    }
+  }
+----
+
+
+[source,java,linenums]
+----
+@MetadataScope(keysResolver = RecordKeysResolver.class)
+public class DocsMetadataSource extends Source<Map<String, Object>, Void> {
+
+    @MetadataKeyId
+    @Parameter
+    public String type;
+
+    //...
+  }
+----
+
+//TODO multilevel metadata keys
+
+[user_metadatakey]
+== ユーザ定義の MetadataKey
+
+ユーザ定義の `MetadataKey` は、エンドユーザが自由に提供できるキーであり、潜在的な要素のリストでは定義されません。
+
+たとえば、クエリでは非常によくあるケースですが、エンドユーザが実行したいクエリ全体を `MetadataKey` として使用します。
+
+宣言するには、パラメータに `@MetadataKeyId` のアノテーションを付けて、`TypesKeyResolver` は指定しないでおきます。
+
+[source,java,linenums]
+----
+  public void query(@MetadataKeyId String query){
+      //...
+  }
+----

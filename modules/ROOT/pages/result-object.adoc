@@ -1,0 +1,76 @@
+= Result オブジェクト
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, 結果, 出力, mimeType, 属性, 操作, ソース
+
+`Result` オブジェクトは、コンポーネントの実行結果を表します。このオブジェクトは、コンポーネントがメッセージペイロードに値を設定して戻す必要があるケースだけではなく、メッセージ属性や MIME タイプを指定するケースでも使用されます。
+
+クラスには、ペイロードに格納される値の型と、返されるメッセージ属性の型の 2 つの汎用型があります。
+
+ファイルコネクタの `read` 操作を大幅に簡素化した例を示します。この操作は、ペイロードをファイルの内容を含む `InputStream` に設定します。また、属性をファイル名、サイズ、タイムスタンプ、権限などの情報が入った `FileAttributes` オブジェクトに設定します。
+
+[source,java,linenums]
+----
+public Result<InputStream, FileAttributes> read(String path) { // <1>
+  InputStream content = getContent(path);
+  FileAttributes attributes = getAttributes(path);
+
+  return Result.<InputStream, FileAttributes>builder() // <2>
+        .output(content) // <3>
+        .attributes(attributes) // <4>
+        .build(); // <5>
+}
+----
+
+<1> 操作は `Result<InputStream, FileAttributes>` を返します。これは、操作が `InputStream` をペイロードとして、`FileAttributes` を属性として返すことを Runtime に通知します。
+<2> 結果値を取得すると、`Result.builder()` を使用して新しいインスタンスを作成します。この値は厳密に型指定されているため、ビルダーを作成する際には汎用型を指定する必要があります。
+<3> ビルダーの `output(Object)` メソッドは、ペイロードの設定に使用します。
+<4> `attributes(Object)` は、属性の設定に使用します。
+<5> 例では、`build()` メソッドをコールして、作成された `Result` を返しています。
+
+== MIME タイプの設定
+
+`Result` オブジェクトを使用して出力の MIME タイプを設定できます。前述の例を少し変えて、操作でファイルの最適な MIME タイプをファイル拡張子から推定します。
+
+[source,java,linenums]
+----
+public Result<InputStream, FileAttributes> read(String path) {
+  InputStream content = getContent(path);
+  FileAttributes attributes = getAttributes(path);
+
+  MediaType guessedMediaType = MediaType.ANY;
+  if (path.endsWith(".json")) {
+    guessedMediaType = MediaType.APPLICATION_JSON;
+  } else if (path.endsWith("*.xml")) {
+    guessedMediaType = MediaType.APPLICATION_XML;
+  } else if (path.endsWith("*.bin")) {
+    guessedMediaType = MediaType.BINARY;
+  }
+
+  return Result.<InputStream, FileAttributes>builder()
+        .output(content)
+        .attributes(attributes)
+        .mediaType(guessedMediaType)
+        .build();
+}
+----
+
+[TIP]
+上記の例では、`MediaType` クラスは `@MediaType` アノテーション付きではなく、Mule API の `org.mule.runtime.api.metadata.MediaType` となっています。
+
+== void 属性
+
+ペイロードと MIME タイプを設定し、属性は設定しない場合、void 型を使用します。次に例を示します。
+
+[source,java,linenums]
+----
+public Result<InputStream, Void> read(String path) {
+  InputStream content = getContent(path);
+
+  return Result.<InputStream, Void>builder()
+        .output(content)
+        .mediaType(bestGuessMediaType(path))
+        .build();
+}
+----

@@ -1,0 +1,284 @@
+= パラメータ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, パラメータ
+
+パラメータとは、特定のコンポーネントに属する設定可能な引数です。 <<configs#, 設定>>、<<module-structure#components,コンポーネント>>、そして<<connections#,接続プロバイダ>>は、それぞれパラメータで設定できるため、​_パラメータ化可能である_​と言います。
+
+パラメータは、コンポーネントが適切に機能するために必要な情報を提供します。各パラメータには以下の情報が含まれます。
+
+* パラメータが持つことのできる値の種類を制限する型。
+* パラメータを一意に識別する名前。
+
+簡単な例を次に示します。
+
+[source,java,linenums]
+----
+@Parameter
+private String foo;
+----
+
+パラメータは、対象とするコンポーネントの種類により、クラスの項目またはメソッドの引数として定義できます。
+
+たとえば、<<operations#,操作>>パラメータは、操作を宣言するメソッドの引数と同じように定義します。`@Parameter` アノテーションを付加する必要はありません。
+
+次の `foo` の例を見てください。
+
+[source,java,linenums]
+----
+public void method(String foo){}
+----
+
+== 複雑な型の使用
+
+次の例では、文字列や整数のような単純な型ではない複雑なパラメータを使用しています。
+
+[source,java,linenums]
+----
+@Parameter
+@Optional
+private Options options;
+----
+
+`Options` は POJO オブジェクトで、次のように定義されます。
+
+[source,java,linenums]
+----
+public class Options {
+
+    @Parameter
+    public String color;
+
+    @Parameter
+    @Optional
+    public String mode;
+
+    public String getColor(){
+        return color;
+    }
+
+    public void setColor(String color){
+        this.color = color;
+    }
+
+    public String getMode(){
+        return mode;
+    }
+
+    public void setMode(String mode){
+        this.mode = mode;
+    }
+}
+----
+
+この例について、以下の点に注意してください。
+
+* `Options` パラメータ全体が省略可能なパラメータとして使用されるため、使用する場合は `Options` 内のすべての必須パラメータが設定されていることを確認する必要があります。
+* `Options` を設定しないと、値は `null` になります (この動作を変更する方法については <<null-safe#,「NullSafe」>>を参照してください)。
+* `Options` パラメータは、Java Bean プロパティである必要があります (つまり、項目名と一致する setter と getter が必要です)。
+
+=== 複雑な型の DSL
+
+複雑な型は、通常のパラメータから分離する必要があります。複雑な型のすべての属性を要素特有のパラメータとマージしても意味がありません。
+
+そのため、複雑な型では子定義が作成されます。次の例は、<<configs#,設定>>の複雑な `Options` 型を示しています。
+
+[source,xml,linenums]
+----
+<module:config name="config-name" someConfigAttribute="value">
+  <module:options color="BLUE" mode="DARK"/>
+</module:config>
+----
+
+`module:options` は `name` および `someConfigAttribute` パラメータから分離されています。
+
+== 修飾子
+
+パラメータは柔軟にカスタマイズできます。このセクションでは、パラメータを定義する際に使用してパラメータの動作や制限を指定する、いくつかの修飾子について説明します。
+
+=== 式のサポート
+
+`ExpressionSupport` は、設定値が DataWeave 式である場合のパラメータの動作を指定します。
+
+3 つの値があります。
+
+* `REQUIRED`: パラメータは、式のみを受け入れます。
+* `SUPPORTED` (デフォルト): パラメータは、式と単純な値の両方を受け入れます。
+* `NOT_SUPPORTED`: パラメータは、静的な値を要求します。式は受け入れません。
+
+これらの値は `@Expression` アノテーションを付加するだけで設定できます。
+
+[source,java,linenums]
+----
+@Parameter
+@Expression(SUPPORTED)
+private String foo;
+----
+
+上記の例では、`foo` という名前の `String` 型のパラメータを定義しており、静的な値 (例: `"bar"`) または式 (例: `"\#[vars.foo]"`) の両方を受け入れます。
+
+=== 必須または省略可能
+
+パラメータには必須と省略可能の 2 種類があります。
+
+パラメータには、実行しようとしている操作にとって非常に重要な情報、つまり、それを設定しなければ処理を続行できないような情報 (HTTP 要求でのホスト名など) を指定するものがあります。一方で、それがなくても処理を実行できる、あるいはデフォルト値 (HTTP リスナのポート 80 など) が使用されるような情報を指定するパラメータもあります。
+
+`@Optional` アノテーションを付加しない限り、パラメータは必須となります。次に例を示します。
+
+[source,java,linenums]
+----
+@Parameter
+@Optional(defaultValue="80")
+private Integer port;
+----
+
+省略可能なパラメータにはデフォルト値を設定できます。
+
+`@Optional` は `String` 値のみを受け入れますが、SDK はパラメータの型に合わせて自動的に値を変換します。また、パラメータが式をサポートしている場合は、デフォルト値として式を使用することもできます。
+
+=== @Alias の使用
+
+各パラメータは、定義時に項目で指定された名前を持ちます。この名前は `@Alias` アノテーションで上書きできます。
+
+[source,java,linenums]
+----
+@Parameter
+@Optional
+@Alias("class")
+private String clazz;
+----
+
+`@Alias` を使用することで、Java の予約語 (`class` など) をパラメータ名に使用できます。項目名に予約語を使用することはできません。
+
+=== パラメータ DSL のカスタマイズ
+
+`@ParameterDsl` アノテーションを使用して、DSL でのパラメータの表示と動作をカスタマイズできます。
+このアノテーションは、生成される XML DSL の構文とセマンティクスに関連したディレクティブを設定し、モデル内の任意のパラメータに適用できます。
+
+`@ParameterDsl` アノテーションには設定可能な要素が 2 つあります。
+
+* `allowInlineDefinition`: +
+  関連付けられているパラメータが子要素などのインライン定義をサポートするかどうかを指定します。
+  複雑な型のパラメータの DSL をカスタマイズする場合、特に、無効な項目 (`name` など) を持つためにインライン定義を回避する必要がある場合や、構造が複雑過ぎてインラインで表現する意味がない場合などに使用します。
++
+たとえば、<<configs#,設定>>で `Options` 型を使用して、`@ParameterDsl(allowInlineDefinition=false)` でパラメータを宣言した場合は、子要素を定義できなくなります。
++
+[source,xml,linenums]
+----
+<module:config name="config-name" someConfigAttribute="value" options="#[vars.options]"/>
+----
++
+* `allowReferences`: +
+  関連付けられているパラメータが `String` を受け取る際にレジストリ参照をサポートするかどうかを指定します。
+  このアノテーションにより、パラメータの型だけでは参照サポートを自動設定するのに十分な情報を提供できない場合に、設定時のパラメータの動作を制御できます。
++
+たとえば、JMS コネクタで、レジストリからオブジェクトを `ConsumerType` 設定としてユーザが挿入することを回避させる場合には、参照をサポートしないと宣言します。
++
+[source,java,linenums]
+----
+@Parameter
+@Optional
+@Expression(NOT_SUPPORTED)
+@ParameterDsl(allowReferences = false)
+private ConsumerType consumerType;
+----
+
+[[groups]]
+== パラメータグループ
+
+`@ParameterGroup` アノテーションは、特別なリレーションを共有しているためにまとめた方が便利なパラメータをグループ化します。
+
+このようなパラメータは、どのように見極めたらよいでしょうか? 常に​*一緒に移動する*​パラメータは、`@ParameterGroup` でグループ化した方がよいでしょう。
+
+また、`@ParameterGroup` を使用することで、グループ内のすべてのパラメータが同じボックスにまとめられ、グループに属さない他のパラメータとは別に表示されるため、UI 表示でも便利です。次に例を示します。
+
+image::group.png[パラメータグループ]
+
+上記の画像を見ると、`Connection` グループには 4 つのパラメータがあり、そのグループには属さないパラメータ (`Soap Version` など) もあります。このように、目的ごとにパラメータを分けることができます。
+
+このパラメータグループの簡単な定義例を示します。
+
+[source,java,linenums]
+----
+public class ConnectionProperties {
+
+    @Parameter
+    public String host;
+
+    @Parameter
+    @Optional(defaultValue="80")
+    public Integer port;
+
+    public String getHost(){
+        return host;
+    }
+
+    public void setHost(String host){
+        this.host = host;
+    }
+
+    public Integer getPort(){
+        return port;
+    }
+
+    public void setPort(Integer port){
+        this.port = port;
+    }
+}
+----
+
+上記の例は次のように使用できます。
+
+[source,java,linenums]
+----
+@ParameterGroup("Connection")
+private ConnectionProperties properties;
+----
+
+`"Connection"` はパラメータグループの名前であり、UI に表示される名前です。
+
+`@ParameterGroup` パラメータグループを定義するクラスは、`properties` という名前のパラメータを持ちません。
+代わりに、`ConnectionProperties` の内部で定義されているパラメータを持ちます。
+
+* `host` という必須パラメータ。
+* `port` という省略可能なパラメータ。
+
+つまり、パラメータグループを定義するクラスは、これらの追加パラメータによって拡張され、`ConnectionProperties` 内で定義されているパラメータと、クラスで宣言されている他のすべてのパラメータを持つことになります。
+
+`@ParameterGroup` アノテーションが付加された各項目は、Java Bean プロパティである必要があります (つまり、項目名と一致する setter と getter が必要です)。
+
+== POJO とパラメータグループの違い
+
+パラメータグループは、それを宣言したコンポーネント内で定義するのではなく、DSL で子要素として記述できるように設定できます。
+
+たとえば、次のような操作を考えてください。
+
+[source,java,linenums]
+----
+public void execute(@ParameterGroup ConnectionProperties properties) { ... }
+----
+
+上記の操作用の DSL は次のようになります。
+
+[source,xml,linenums]
+----
+<example:execute host="localhost" port="8080">
+----
+
+ただし、`@ParameterGroup(showInDsl=true)` を使用してパラメータグループを設定すると、DSL は次のようになります。
+
+[source,xml,linenums]
+----
+<example:execute message="Example message!">
+    <example:properties host="localhost" port="8080"/>
+</example:execute>
+----
+
+POJO `@Parameter` を定義しても同じ DSL が得られるため、どのような状況において `@ParameterGroup` アノテーション付きの POJO ではなく POJO を使用すべきなのか迷うかも知れません。
+
+これらの 2 つの概念には微妙な違いがあります。型を全体として捉えて、その型が提供する構造が重要である場合は、必ず POJO を使用してください。
+
+たとえば、`ConnectionProperties` (上記) は、常に一緒に設定される 2 つのパラメータを一緒に扱っています。この場合、これらのパラメータはモジュールのドメインでエンティティを表現しません。パラメータグループは、関連するパラメータを一緒に扱って UI で一緒に表示するための便利な手段にすぎません。
+
+上記で定義されている `Options` POJO は、オブジェクトのパラメータだけではなくオブジェクト自身も重要です。たとえば、各オブジェクトはそれ自身で意味があるため (オブジェクト指向プログラミングのように) `Options` のリストを定義することは有効です。一方、モジュールのドメインでは特定の意味を持たず、パラメータを一緒に表示するためだけにクラスを使用する場合には、パラメータグループを使用した方がよいでしょう。

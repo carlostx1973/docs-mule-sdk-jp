@@ -1,0 +1,62 @@
+= 排他的省略可能パラメータ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, アノテーション, 排他的, 省略可能
+
+同じものを何通りかの方法で設定できるモジュールを開発していて、その中の 1 つだけを使用する必要があるケースでは、次のルールの設定が必要な場合もあります。
+
+* 特定のパラメータセットから一度に 1 つだけを使用すること。
+
+`@ExclusiveOptionals` を使用することで、この制約を適用することができます。
+
+== @ExclusiveOptionals
+
+`@ExclusiveOptionals` アノテーションは、`@ParameterGroup` として使用される種別でのみ使用できます (詳細は<<parameters#,「パラメータ」>>を参照してください)。
+
+.例
+[source,java,linenums]
+----
+@ExclusiveOptionals
+public class ExclusiveOptionalsExample {
+
+    @Parameter
+    private String requiredParameter;
+
+    @Parameter
+    @Optional
+    private String optionalParameter;
+
+    @Parameter
+    @Optional
+    private String anotherOptionalParameter;
+}
+----
+
+アノテーション名が示すように、排他的な制約は省略可能なパラメータにのみ適用されます。そのため、`requiredParameter` を `optionalParameter` や `anotherOptionalParameter` と同時に設定することはできますが、`optionalParameter` と `anotherOptionalParameter` を同時に設定すると、エラーがスローされます。
+
+ヒント: `@ExclusiveOptionals` でアノテーションが付加されたオブジェクトの内部では、パラメータをいくつでも設定できますが、同時に設定できる省略可能なパラメータは 1 つだけです。
+
+== 最低 1 つのパラメータを適用する
+
+省略可能なパラメータを正確に 1 つ (1 つのみ) 設定する必要があるケースがあります。この要件は、`@ExclusiveOptionals(isOneRequired = true)` を使用して設定できます。次に例を示します。
+
+[source,java,linenums]
+----
+@ExclusiveOptionals(isOneRequired = true)
+public class OneRequiredExample {
+
+    @Parameter
+    private String requiredParameter;
+
+    @Parameter
+    @Optional
+    private String optionalParameter;
+
+    @Parameter
+    @Optional
+    private String anotherOptionalParameter;
+}
+----
+
+そのため、`requiredParameter` を設定して、省略可能なパラメータの `optionalParameter` または `anotherOptionalParameter` を設定しないと、エラーがスローされます。

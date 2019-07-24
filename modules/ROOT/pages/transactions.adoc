@@ -1,0 +1,155 @@
+= トランザクション
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, 操作, ソース, tx, トランザクション, xa
+
+SDK では、Mule フロー内でトランザクションへの結合と新規トランザクションの作成を行うコネクタを作成できます。これには、1 つの単位として機能する、ソースと操作の実行が含まれます。つまり、フロー内で問題が発生した場合、トランザクションに参加しているすべてのコンポーネントが 1 つの単位としてその実行をロールバックします。一部だけで部分的な完了とならないようにトランザクション内のすべての操作がロールバックされます。
+
+== コネクタへのトランザクションの実装
+
+Mule のトランザクションサポートは、キーにより識別されるトランザクションリソースに基づいて機能します。SDK はこの同じ概念、すなわち接続の抽象化を再利用し、コンポーネントの接続をトランザクションのキーとして使用するという概念を踏襲します。
+
+`ConnectionProvider` が `TransactionalConnection` インターフェースのインスタンスを生成するため、トランザクションを持つには拡張機能に `ConnectionProvider` が必要です。
+
+=== TransactionalConnection インターフェース
+
+コネクタでトランザクションを有効にするには、接続プロバイダ (<<connections#,`ConnectionProvider`>>) が必要です。この接続プロバイダが、`TransactionalConnection` インターフェースを実装する接続を提供します。
+
+接続では、トランザクションの開始と結果を伝達するために使用する `TransactionalConnection` メソッドを実装する必要があります。
+
+
+[source,java,linenums]
+----
+public class TXConnectionProvider implements ConnectionProvider<TXConnection> {
+  ...
+}
+----
+[source,java,linenums]
+----
+public class TxConnection implements TransactionalConnection {
+
+    @Override
+    public void begin() throws TransactionException {
+        //logic to begin a transaction
+    }
+
+    @Override
+    public void commit() throws TransactionException {
+        //logic to commit a transaction
+
+    }
+
+    @Override
+    public void rollback() throws TransactionException {
+        //logic to rollback a transaction
+    }
+}
+
+----
+
+このインターフェースを実装するには、次のメソッドを実装する必要があります。
+
+[%header%autowidth.spread]
+|===
+| メソッド | 説明
+|`begin()` | トランザクションを開始する必要がある場合、このメソッドをコールします。
+|`commit()` | トランザクションが正しく終了し、トランザクションをコミットする必要がある場合、これをコールします。
+|`rollback()` | トランザクションがエラーで終了し、トランザクションをロールバックする必要がある場合、これをコールします。
+|===
+
+//TODO review how much of Operation TXs should be explained here and how much in the
+// proper operations doc. The same with Sources.
+=== 操作でのトランザクション
+
+操作をトランザクションの下で動作させるには、`@Connection` パラメータがトランザクション対応の接続、つまり `TransactionalConnection` を実装する接続である必要があります。
+
+==== トランザクションのアクション
+
+操作がトランザクション型の場合、`transactionalAction` という名前の合成パラメータが操作に自動的に追加されます。このパラメータは、次の値を取る可能性がある Enum (列挙) 型です。
+
+[%header%autowidth.spread]
+|===
+| アクション名 | 説明
+|*ALWAYS_JOIN* | コネクタは常に既存のトランザクションに結合します。トランザクションがないか、現在のトランザクションに現在の操作との互換性がない場合、操作の実行は失敗します。
+|*JOIN_IF_POSSIBLE* (デフォルト) | トランザクションを使用できる場合、そのトランザクションを使用します。それ以外の場合、処理を続行します。
+|*NOT_SUPPORTED* | 操作は、実行中のトランザクションの外側で実行されます。
+|===
+
+[source,xml,linenums]
+----
+<try transactionalAction="BEGIN_OR_JOIN">
+  <transactional-connector:work config-ref="config"
+    transactionalAction="ALWAYS_JOIN"/>
+</try>
+----
+
+===== 操作コード内の操作のトランザクションアクション
+
+場合によって、Mule アプリケーション内で `transactionalAction` がどの操作レベルで設定されているかを把握することが必要になる場合があります。これを行うには、使用された値を挿入するように `OperationTransactionalAction` 型のパラメータを設定することができます。
+
+[source,java,linenums]
+----
+public void work(@Connection TxConnection connection, OperationTransactionalAction action) {
+  //
+}
+----
+
+==== 操作のトランザクションの使用方法
+
+操作はトランザクションを開始できません。トランザクションは<<sources#,メッセージソース>>によって開始できます。また、操作は、新しいトランザクションを開始する `<try />` スコープの内側に入っている必要があります。
+
+トランザクション型操作を実行する前に、Mule は現在のトランザクションに、バインドされたキーがあるかどうかを確認します。
+
+* バインドされたキーがすでにある場合 (以前の操作またはソースによりすでに登録されているため)、Mule は、現在の操作との互換性があるかどうかを確認します。互換性がある場合、操作は、バインドされた接続を使用します。  それ以外の場合、実行フローが失敗し、現在の操作が互換性のないトランザクションに入ろうとしたことが示されます。
+* バインドされたキーがない場合、操作の接続がキーとしてバインドされ、`TransactionalConnection.begin()` が実行されて、現在の操作のトランザクションを開始する必要があることが通知されます。
+
+トランザクションスコープ (つまり、`<try />` スコープ、またはトランザクションが<<sources#,メッセージソース>>により初期化されている場合はフロー全体) の実行の最後で、トランザクションが正しく終了している場合、Mule は `TransactionalConnection.commit()` をコールします。エラーが発生している場合は、`TransactionalConnection.rollback()` を実行します。
+
+接続がトランザクションに結合すると、プロバイダの接続管理戦略が上書きされます。つまり、接続の戦略に関係なく、トランザクションのスコープ内のすべての一致する操作で同じ接続が使用されます。
+
+WARNING: この動作は `CachedConnectionProvider` の概念に完全に一致するわけではありません。同じ接続が、異なるトランザクションに同時に結合できるためです。そのため、同じ接続内で異なるトランザクションを同時に管理する方法をユーザが認識しておく必要があります。
+トランザクションと共に `CachedConnectionProviders` を使用することは極力お勧めしません。
+
+=== ソースでのトランザクション
+
+操作をトランザクションの下で動作させるには、`@Connection` パラメータが、トランザクション互換性のある接続を提供できる `ConnectionProvider` である必要があります。
+
+==== トランザクションのアクション
+
+===== ソースのトランザクションアクション
+
+メッセージソースがトランザクションの場合、`transactionalAction` という名前の合成パラメータが自動的に追加されます。このパラメータは、次の値を取る可能性がある Enum (列挙) 型です。
+
+.ソースのトランザクションアクション
+[%header%autowidth.spread]
+|===
+| アクション名 | 説明
+| ALWAYS BEGIN (常に開始) | 呼び出しごとに新しいトランザクションが必ず作成されます。
+| NONE (なし) (デフォルト) | ソースはトランザクションを開始せず、フロー内で開かれているトランザクションに参加しません。
+|===
+
+===== 操作コード内のソースのトランザクションアクション
+
+場合によって、Mule アプリケーション内で `transactionalAction` がどのソースレベルで設定されているかを把握することが必要になる場合があります。この場合、使用された値を挿入するように `SourceTransactionalAction` 型のパラメータを定義することができます。次に例を示します。
+
+.ソースへの SourceTransactionalAction の挿入
+[source,java,linenums]
+----
+public class TransactionalSource extends Source<String, Void> {
+
+  @Connection
+  private ConnectionProvider<TXConnection> connection;
+
+  @Parameter
+  private SourceTransactionalAction action;
+
+  // rest of the code
+}
+----
+
+このトピックの詳細は、<<sources-transactions#,ソーストランザクション>>についての説明を参照してください。
+
+=== XA トランザクション
+
+XA トランザクションは同様の方法でサポートされます。唯一の違いは、プロバイダが `TransactionalConnection` の代わりに `XATransactionalConnection` を返すことです。これは、`XAResource` を返すことができる接続です。

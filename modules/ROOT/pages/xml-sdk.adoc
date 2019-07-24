@@ -1,0 +1,1475 @@
+= XML SDK
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords:
+:toc:
+
+XML SDK は、より高度な Java ベースの Mule SDK に代わるものです。XML SDK を使用して、Mule アプリケーションを作成する方法と同様にカスタムモジュールを作成します。  実際にモジュール内で既存の Mule コンポーネントを使用できます。このフレームワークでは、モジュールの主要部分 (`<module>`、`<operation>`、`<parameter>` 要素など) を囲む XML 要素としていくつかの構文的なイディオムを追加するだけです。たとえば、次のスニペットでは `Hello XML SDK` 内で 1 つの操作を定義します。
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="Hello XML SDK"  ...>
+  <operation name="say-hello" doc:description="Greets you!">
+    <body>
+      <mule:set-payload value="Hello World!"/>
+    </body>
+    <output type="string"/>
+  </operation>
+</module>
+----
+
+他のコンポーネントの使用方法と同じ方法で、Mule SDK コンポーネントを Mule フローで使用します。この例では、操作 `<hello-smart-connector:say-hello>` で定義されているとおりに、フロー `"random-flow"` の実行によりペイロードが `"Hello World!"` に設定されます。
+
+[source,xml,linenums]
+----
+<flow name="random-flow">
+  <hello-smart-connector:say-hello>
+</flow>
+----
+
+XML SDK は強く型付けされているため、すべての操作の定義済みパラメータのデータ型は、入力および出力の両方で静的に設定されます。
+
+== XML SDK の基礎
+
+XML SDK コンポーネントは、その動作と、Runtime がコンポーネントとやり取りする方法を示す主要な要素で構成されます。
+
+* 操作
+* プロパティ
+* 囲んでいるモジュール
+
+
+=== 操作
+
+`<operation>` 要素は一連の入力パラメータと 1 つの出力を定義します。関数と同様に、入力パラメータがあり、(本文に記述されている) アクションを実行し、1 つの出力があります。関数と異なり、操作に値が保存されている場合や、操作で外部ソースを参照する場合、操作の動作は変わる可能性があります。
+
+* 入力パラメータ (`<parameter>`): 操作をコールするときに入力する型を宣言します。
++
+このパラメータは、`<body>` スコープ内のメッセージプロセッサがアクセスできる唯一のデータです。
++
+* 本文 (`<body>`): 実行するコンポーネントのチェーンを定義します。フローに似ています。
+* 出力 (`<output>`): XML SDK モジュールの出力データ型を宣言します。これは、`<body>` で処理された後のペイロードの型です。
+* エラー: `<body>` 内で XML SDK が発生させる (またはマップする) ことができるエラー種別を宣言します。
+
+次の XML SDK モジュールでは、2 つの数値をパラメータとして取得し、それらを合計する 1 つの操作を実行します。
+
+[source,xml,linenums]
+----
+<module name="Math XML SDK"...>
+  ...
+  <operation name="sum" doc:description="Takes two numbers and returns the sum of them">
+    <parameters>
+      <parameter name="numberA" type="number"/>
+      <parameter name="numberB" type="number"/>
+    </parameters>
+    <body>
+      <mule:set-payload value="#[vars.numberA + vars.numberB]"/>
+    </body>
+    <output type="number"/>
+  </operation>
+</module>
+----
+
+XML SDK モジュールを Mule アプリケーションで使用するには、XML SDK モジュールを Mule フローに追加するだけです。次に例を示します。
+
+[source,xml,linenums]
+----
+<flow name="mule-flow">
+  <math-smart-connector:sum numberA="10" numberB="5"/>
+  <!-- payload here is 15 -->
+</flow>
+----
+
+.<parameter> の属性
+[%header,cols="20,20,30,70a"]
+|===
+|名前 | 使用 | デフォルト値 | 説明
+
+| `name`
+| 必須
+| なし
+| `<parameter>` の名前
+
+| `defaultValue`
+| 省略可能
+| なし
+| 別の値を提供しない場合、`<operation>` はデフォルト値を使用します。
+
+| `use`
+| 必須
+| `AUTO`
+| 可能な値:
+
+* `REQUIRED`: パラメータが存在する必要があります。パラメータに `defaultValue` がある場合、これを REQUIRED にすることはできません。
+* `OPTIONAL`: パラメータは必須ではありません。
+* `AUTO`: `defaultValue` がない場合、ランタイム時にデフォルトの `REQUIRED` になります。それ以外の場合、`OPTIONAL` としてマークされます。
+
+| `type`
+| 必須
+| なし
+| `<parameter>` のデータ型を定義します。`string`、`boolean`、`datetime`、`date`、`number`、`time` などのプリミティブ型を使用できます。また、<<xml_sdk_catalog,カタログ>>で定義された任意の型に依存することもできます。
+
+| `password`
+| 省略可能
+| `false`
+| UI 内では `<parameter>` を `\****` でマークします。
+
+| `role`
+| 必須
+| `behavior`
+| 現在の `<parameter>` に対して生成された XSD を変更する特定のパラメータに対する定義済みのロールのセット。
+
+* `behavior` は属性を表示します。
+* `CONTENT` は、子要素として DataWeave のサポートがあることを意味します。
+* `PRIMARY` は `CONTENT` のように機能しますが、デフォルトではペイロードにマップします。
+
+xref:content-parameters.adoc[ロールについての詳細]を参照してください。
+
+| `summary`
+| 省略可能
+| なし
+| 簡単なツールチップを `<parameter>` に追加します。
+
+| `example`
+| 省略可能
+| なし
+| このパラメータのデータ型の短い例を追加します。
+
+| `displayName`
+| 省略可能
+| なし
+| UI 表示ラベルを提供します。`displayName` がない場合、デフォルト値は、`name` 属性のハイフン付きバージョンになります。
+
+| `order`
+| 省略可能
+| なし
+| 各要素を UI に表示する順序を定義します。
+
+| `tab`
+| 省略可能
+| なし
+| UI 内で `<parameter>` が属する必要があるグループ (またはタブ) を定義します。
+
+| `doc:description`
+| 省略可能
+| なし
+| `<parameter>` のドキュメント。
+|===
+
+
+.<output> の属性
+[%header,cols="20,20,30,70a"]
+|===
+|名前 | 使用 | デフォルト値 | 説明
+| `type`
+| 省略可能
+|
+| 出力ペイロードのデータ型。要素を削除して、これを `void` に設定することができます。これにより、動作にペイロードの変更が伴う場合でも、`<operation>` が Mule イベントを変更することが回避されます。
+
+|===
+
+`<output-attributes>` 要素を使用する場合、属性型の定義は `<operation>` 要素によってサポートされます。
+
+.<output-attributes> の属性
+[%header,cols="20,20,30,70a"]
+|===
+|名前 | 使用 | デフォルト値 | 説明
+| `type`
+| 省略可能
+|
+| 出力属性のデータ型。要素を削除して、これを `void` に設定することができます。これにより、動作にペイロードの変更が伴う場合でも、`<operation>` が Mule イベントを変更することが回避されます。
+
+|===
+
+両方の出力 (`<output>` と `<output-attributes>`) は、制御が呼び出し元に戻った時に作成される `MuleMessage` の一部になります。
+
+.*<error>* の属性
+[%header,cols="20,20,30,70a"]
+|===
+|名前 | 使用 | デフォルト値 | 説明
+| `type`
+| 必須
+|
+| `<body>` 内でスロー (または再マップ) するエラーコードの型。xref:4.1@mule-runtime::mule-error-concept.adoc[Mule エラーの概念]を参照してください。
+
+|===
+
+=== プロパティ
+
+`<property>` は、XML SDK コンポーネントのエンドユーザにより定義された項目を対象とします。これは、これを使用する Mule プロジェクト全体のグローバル設定として機能します。
+
+プロパティは、操作により公開されるパラメータに似ていますが、特定の操作ではなく、プロジェクト内の XML SDK コンポーネントのすべてのインスタンスに影響するレベルで機能します。操作のパラメータと同様に、プロパティは、通常は、デフォルト値を持つ単純型です。
+
+[TIP]
+XML SDK モジュールのエンドユーザが混乱しないように、エンドユーザが編集する必要があると思われるプロパティのみを公開します。たとえば、エンドユーザが変更できないまたは変更してはならない内部値は公開しないでください。
+
+次の XML SDK モジュールは要求を https://developer.github.com/v3/users/#get-the-authenticated-user[GitHub API V3] に送信し、認証済みユーザを取得します。
+
+////
+TODO: VERIFY THAT THIS WORKS
+
+TODO: VERIFY THAT httpn is correct and not http
+////
+
+[source,xml,linenums]
+----
+<module name="Github"  ...>
+  <property name="username" type="string" doc:description="Username credential."/>
+  <property name="password" type="string" password="true" doc:description="Password credential"/>
+
+  <http:request-config name="github-httpreq-config" basePath="/">
+    <http:request-connection host="api.github.com" protocol="HTTPS" port="443">
+      <http:authentication>
+        <http:basic-authentication username="#[vars.username]" password="#[vars.password]"/>
+      </http:authentication>
+    </http:request-connection>
+  </http:request-config>
+
+  <operation name="get-user" doc:description="Lists public and private profile information when authenticated.">
+    <body>
+      <httpn:request config-ref="github-httpreq-config" path="#['user/' ++ vars.username]" method="GET"/>
+    </body>
+    <output type="string" doc:description="User information if logged properly."/>
+  </operation>
+</module>
+----
+
+この例では、次のようにモジュール内で定義されている `<property>` を参照します。
+
+* グローバル要素内で `request-config` の値として。
+* 操作内で `http-request` 内の `config-ref` 属性に対する値として。
+
+次の Mule アプリケーションは XML SDK モジュールを使用します。`github` プレフィックス (`github:get-user` など) はモジュールの `name` から派生します。
+
+[source,xml,linenums]
+----
+<mule ...>
+  <github:config name="lautaro-github-config" username="fernandezlautaro" password="****"/>
+  <flow name="test-github-flow">
+    <github:get-user config-ref="lautaro-github-config"/>
+  </flow>
+</mule>
+----
+
+`"test-github-flow"` の実行のたびに、認証済みユーザの GitHub 情報が返されます。
+
+[source,json,linenums]
+----
+{
+  "login": "fernandezlautaro",
+  "id": 4719511,
+  "avatar_url": "https://avatars1.githubusercontent.com/u/4719511?v=3",
+  "gravatar_id": "",
+  "url": "https://api.github.com/users/fernandezlautaro",
+  ...
+}
+----
+
+ログイン情報が正しくない場合、GitHub から次のエラー応答が返されます。
+
+[source,json,linenums]
+----
+{
+  "message": "Requires authentication",
+  "documentation_url": "https://developer.github.com/v3"
+}
+----
+
+.<property> 属性
+[%header,cols="20,20,30,70a"]
+|===
+|名前 | 使用 | デフォルト値 | 説明
+
+| `name`
+| 必須
+| なし
+| `<property>` の名前。
+
+| `defaultValue`
+| 省略可能
+| なし
+| 別の値を提供しない場合、`<property>` はデフォルト値を使用します。
+
+| `use`
+| 必須
+| `AUTO`
+| 可能な値:
+
+* `REQUIRED`: プロパティが存在する必要があります。パラメータに `defaultValue` がある場合、これを REQUIRED にすることはできません。
+* `OPTIONAL`: プロパティは必須ではありません。
+* `AUTO`: `defaultValue` がない場合、ランタイム時にデフォルトの `REQUIRED` になります。それ以外の場合、`OPTIONAL` としてマークされます。
+
+| `type`
+| 必須
+| なし
+| `<property>` のデータ型を定義します。`string`、`boolean`、`datetime`、`date`、`number`、`time` などのプリミティブ型を使用できます。また、<<xml_sdk_catalog,カタログ>>で定義された任意の型に依存することもできます。
+
+| `password`
+| 省略可能
+| `false`
+| 入力時に UI 内のプロパティの値が非表示になります (`\****` が使用されます)。
+
+| `summary`
+| 省略可能
+| なし
+| 簡単なツールチップを `<property>` に追加します。
+
+| `example`
+| `optional`
+| なし
+| このプロパティのデータ型の短い例を追加します。
+
+| `displayName`
+| `optional`
+| なし
+| UI のわかりやすい表示ラベルを提供します。この属性を空のままにすると、デフォルト値は、`name` 属性のハイフン付きバージョンになります。
+
+| `displayName`
+| 省略可能
+| なし
+| UI 表示ラベルを提供します。`displayName` がない場合、デフォルト値は、`name` 属性のハイフン付きバージョンになります。
+
+| `order`
+| 省略可能
+| なし
+| 各要素を UI に表示する順序を定義します。
+
+| `tab`
+| 省略可能
+| なし
+| UI 内で `<property>` が属する必要があるグループ (またはタブ) を定義します。
+
+| `doc:description`
+| 省略可能
+| なし
+| `<property>` のドキュメント。
+|===
+
+=== モジュール
+
+`<module>` 要素は XML SDK モジュールのルートです。これには、モジュールに属するすべてのプロパティと操作が含まれます。
+
+.<module> 属性
+[%header,cols="20,20,30,70a"]
+|===
+|名前 | 使用 | デフォルト値 | 説明
+
+| `name`
+| 必須
+| なし
+| `<module>` の名前。
+
+| `vendor`
+| 省略可能
+| `"MuleSoft"`
+| XML SDK モジュールのベンダー。
+
+| `prefix`
+| 省略可能
+| なし
+| スキーマを生成するときに使用するモジュールのプレフィックス。空の場合、`name` のハイフン付きバージョンが使用されます。
+
+| `namespace`
+| 省略可能
+| なし
+| スキーマの生成時にモジュールで使用する名前空間。それ以外の場合、デフォルトは `+http://www.mulesoft.org/schema/mule/<prefix>+` です (`<prefix>` は `prefix` 属性値)。
+
+| `doc:description`
+| 省略可能
+| なし
+| `<module>` のドキュメント。
+|===
+
+XML SDK スキーマを Mule アプリケーションにインポートするには、`namespace` 属性を使用します。XML スキーマは動的に生成されます。`namespace`、`prefix`、および `name` 属性がどのように連携するかを次の表で示します。
+
+.<module> で `name`、`prefix`、および `namespace` を提供する
+|===
+| 提供された値 | 生成された値
+
+| `name="hello with spaces"`
+| `name="hello with spaces"`
+
+| `prefix="hello-prefix"`
+| `prefix="hello-prefix"`
+
+| `namespace="http://www.mulesoft.org/schema/a/different/path/mule/hello"`
+| `namespace="http://www.mulesoft.org/schema/a/different/path/mule/hello"`
+|===
+
+生成されたスキーマの場所:
+
+`+http://www.mulesoft.org/schema/a/different/path/mule/hello/current/mule-hello-prefix.xsd+`
+
+.<module> で `name` と `prefix` を提供する
+|===
+|提供された値 | 生成された値
+
+| `name="hello with spaces"`
+| `name="hello with spaces"`
+
+| `prefix="hello-prefix"`
+| `prefix="hello-prefix"`
+
+| なし
+| `namespace=http://www.mulesoft.org/schema/mule/hello-prefix`
+|===
+
+生成されたスキーマの場所: `+http://www.mulesoft.org/schema/mule/hello-prefix/current/mule-hello-prefix.xsd+`
+
+.<module> で `name` のみを提供する
+|===
+|提供された値 | 生成された値
+
+| `name="hello with spaces"`
+| `name="hello with spaces"`
+
+| なし
+| `prefix="hello-with-spaces"`
+
+| なし
+| `namespace=http://www.mulesoft.org/schema/mule/hello-with-spaces`
+|===
+
+生成されたスキーマの場所は `+http://www.mulesoft.org/schema/mule/hello-with-spaces/current/mule-hello-with-spaces.xsd+` です。
+
+次のモジュールには `name` 属性 `name="hello with spaces"` のみがあります。つまり、その `prefix` は `hello-with-spaces` として動的に生成され、その `namespace` は `+http://www.mulesoft.org/schema/mule/hello-with-spaces/current/mule-hello-with-spaces.xsd+` として動的に生成されます。また、Mule アプリケーションには該当の値に一致する参照をポイントするスキーマの場所 (`schemaLocation`) が必要であることも意味します。
+
+[source,xml,linenums]
+----
+<module name="hello with spaces"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation=" ... ">
+  <operation name="an-operation" />
+</module>
+----
+
+上記のこの `hello with spaces` モジュールを Mule アプリケーションで使用できます。次に例を示します。
+
+[source,xml,linenums]
+----
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:hello-with-spaces="http://www.mulesoft.org/schema/mule/hello-with-spaces"
+      xsi:schemaLocation="
+      http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+      http://www.mulesoft.org/schema/mule/hello-with-spaces http://www.mulesoft.org/schema/mule/hello-with-spaces/current/mule-hello-with-spaces.xsd">
+
+    <flow name="some-flow">
+        <hello-with-spaces:an-operation/>
+    </flow>
+</mule>
+----
+
+== XML SDK プロジェクトの作成およびテスト
+
+XML SDK モジュールを作成する手順は、次のとおりです。
+
+
+. Maven (`mvn`) を使用して、次のコマンドを実行します。
++
+[source,text,linenums]
+----
+mvn archetype:generate                                       \
+  -DarchetypeGroupId=org.mule.extensions                     \
+  -DarchetypeArtifactId=xml-mule-extensions-archetype        \
+  -DarchetypeVersion=1.0.1                                   \
+  -DgroupId=org.mule.extension                               \
+  -DartifactId=hello-mule-extension                          \
+  -DmuleConnectorName=Hello
+----
++
+
+[TIP]
+上記のコネクタ名は `Hello` のため、モジュールの名前空間は、`prefix` 属性で設定されているように `module-hello` に自動的に設定されます。
+
+. 値が正しいかどうかを示すように要求するメッセージが表示されたら、`enter` を押して続行します。
++
+Maven アーキタイプでは、XML SDK モジュールの最小限のコードと、それを実行するための機能テストを含むスタブプロジェクトが作成されます。このプロジェクトの構造は次のようになります。
++
+[source,text,linenums]
+----
+➜  hello-mule-extension tree .
+.
+├── pom.xml
+└── src
+    ├── main
+    │   └── resources
+    │       └── org
+    │           └── mule
+    │               └── yourdomain
+    │                   └── module-Hello.xml // <1>
+    └── test
+        └── munit
+            └── assertion-munit-test.xml // <2>
+
+8 directories, 3 files
+----
++
+(1) `hello-mule-extension/src/main/resources/org/mule/yourdomain/module-Hello.xml`: XML SDK ルート要素を定義します。
++
+(2) `hello-mule-extension/src/test/munit/assertion-munit-test.xml`: XML SDK 操作をコールするアサーション操作。
++
+. `/hello-mule-extension` 内で `mvn clean install` を実行し、`Hello XML SDK` モジュール用のプラグインを作成します。
++
+このコマンドでは、親プロジェクトに加えてその子プロジェクトもインストールされます。また、モジュールで定義された操作の MUnit を介してスイートも実行されます。
++
+[source,text,linenums]
+----
+➜  hello-mule-extension mvn clean install
+ ...
+ ..
+ .
+==================================================================================
+Number of tests run: 2 - Failed: 0 - Errors: 0 - Skipped: 0 - Time elapsed: 2246ms
+==================================================================================
+[INFO] ====================================================================================
+[INFO] MUnit Run Summary - Product: MULE, Version: 4.1.1
+[INFO] ====================================================================================
+[INFO]  >> assertion-munit-test.xml test result: Tests: 2, Errors: 0, Failures: 0, Skipped: 0
+[INFO]
+[INFO] ====================================================================================
+[INFO]  > Tests:   	2
+[INFO]  > Errors:  	0
+[INFO]  > Failures:	0
+[INFO]  > Skipped: 	0
+[INFO] ====================================================================================
+....
+...
+..
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time: 39.166 s
+[INFO] Finished at: 2017-06-14T22:07:42-03:00
+[INFO] Final Memory: 61M/928M
+[INFO] ------------------------------------------------------------------------
+➜  hello-smart-connector
+----
++
+(3) このコネクタをテストのためにローカルの Maven リポジトリからプロジェクトに追加する場合、次の連動関係を追加します。
+----
+<dependency>
+       <groupId>org.mule.extension</groupId>
+       <artifactId>hello-mule-extension2</artifactId>
+       <version>1.0.0-SNAPSHOT</version>
+       <classifier>mule-plugin</classifier>
+</dependency>
+----
++
+これで、このコネクタを Studio パレットから使用できるようになりました。
++
+== XML SDK モジュールからの Mule プラグインのコンシューム
+
+XML SDK モジュール内から Mule プラグインをコンシュームする手順は、次のとおりです。
+
+. 連動関係を XML SDK モジュールの POM ファイルに追加します。
++
+たとえば、XML SDK モジュールで HTTP コネクタと OAuth モジュールを使用するには、POM に次の連動関係を含める必要があります。
++
+[source,xml,linenums]
+----
+<dependencies>
+  <dependency>
+    <groupId>org.mule.connectors</groupId>
+    <artifactId>mule-http-connector</artifactId>
+    <version>1.2.1</version>
+    <classifier>mule-plugin</classifier>
+    <scope>compile</scope>
+  </dependency>
+  <dependency>
+    <groupId>org.mule.modules</groupId>
+    <artifactId>mule-oauth-module</artifactId>
+    <version>1.1.2</version>
+    <classifier>mule-plugin</classifier>
+    <scope>compile</scope>
+  </dependency>
+</dependencies>
+----
++
+. スキーマの場所を `<module>` ルート要素に追加します。次に例を示します。
++
+[source,xml,linenums]
+----
+<module name="Hello XML SDK" prefix="module-hello"
+    ...
+    xmlns:httpn="http://www.mulesoft.org/schema/mule/http"
+    xmlns:oauth="http://www.mulesoft.org/schema/mule/oauth"
+    xsi:schemaLocation=" ...
+ http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+ http://www.mulesoft.org/schema/mule/oauth http://www.mulesoft.org/schema/mule/oauth/current/mule-oauth.xsd">
+ ...
+  <!-- use of the HTTP and OAuth connector -->
+</module>
+----
+
+== 操作の再利用
+場合によって、繰り返されるメッセージプロセッサが操作に含まれることがあります。このメッセージプロセッサが新しい操作でカプセル化され、他の場所からコールされている場合、このメッセージプロセッサに依存できます。
+
+操作に循環連動関係がない場合、`<module>` で定義された各 `<operation>` を​_同じ_​ `<module>` 内で再利用できます。
+
+たとえば、挿入や更新を実行する前に `<module>` で入力パラメータを検証するとします。次の例では、検証が操作 `validate-and-insert` および `validate-and-update` 内で繰り返されています。
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-calling-operations-within-module"
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:mule="http://www.mulesoft.org/schema/mule/core"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+
+    <operation name="validate-and-insert">
+        <parameters>
+            <parameter name="name" type="string"/>
+        </parameters>
+        <body>
+            <!-- validate the 'name' != null -->
+            <!-- validate the 'name' wasn't already added -->
+            <!-- validate the 'name' matches some criteria -->
+            <!-- validate the 'name' ... and so on -->
+            <db:insert config-ref="dbConfig..">
+                <db:sql>INSERT INTO PLANET(NAME) VALUES (:name)</db:sql>
+                <db:input-parameters>#[{ 'name' : vars.name }]</db:input-parameters>
+            </db:insert>
+        </body>
+    </operation>
+
+    <operation name="validate-and-update">
+        <parameters>
+            <parameter name="originalName" type="string"/>
+            <parameter name="newName" type="string"/>
+        </parameters>
+        <body>
+            <!-- validate the 'newName' and 'originalName' != null -->
+            <!-- validate the 'newName' and 'originalName' wasn't already added -->
+            <!-- validate the 'newName' and 'originalName' matches some criteria -->
+            <!-- validate the 'newName' and 'originalName' ... and so on -->
+            <db:update config-ref="dbConfig..">
+                <db:sql>update PLANET set NAME= :newName where NAME=':originalName'</db:sql>
+                <db:input-parameters>#[{'originalName' : vars.originalName, 'newName' : vars.newName}]</db:input-parameters>
+            </db:update>
+        </body>
+    </operation>
+</module>
+----
+
+前述の例のこのプロセスを簡素化するには、他の操作からコールする `validate` 操作を追加することができます。次に例を示します。
+
+[source,xml,linenums]
+----
+    <operation name="validate">
+        <parameters>
+            <parameter name="aParameter" type="string"/>
+        </parameters>
+        <body>
+            <!-- validate the 'aParameter' != null -->
+            <!-- validate the 'aParameter' wasn't already added -->
+            <!-- validate the 'aParameter' matches some criteria -->
+            <!-- validate the 'aParameter' ... and so on -->
+        </body>
+    </operation>
+----
+
+`<module>` 内から他の操作をコンシュームする手順は、次のとおりです。
+
+. XML 名前空間の `xmlns:tns` 属性と `schemaLocation` の新しい値を `<module>` に追加します。
++
+値は現在のモジュールの対象の名前空間をマップする必要があります。
++
+. 操作の名前の前に `tns` プレフィックスを付けて操作をコールします。完全なモジュールは次のようになります。
++
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-calling-operations-within-module"
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:mule="http://www.mulesoft.org/schema/mule/core"
+        xmlns:tns="http://www.mulesoft.org/schema/mule/module-calling-operations-within-module"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+           http://www.mulesoft.org/schema/mule/module-calling-operations-within-module http://www.mulesoft.org/schema/mule/module-calling-operations-within-module/current/mule-module-calling-operations-within-module.xsd">
+
+    <operation name="validate-and-insert">
+        <parameters>
+            <parameter name="name" type="string"/>
+        </parameters>
+        <body>
+            <tns:validate aParameter="#[vars.name]"/>
+            <db:insert config-ref="dbConfig..">
+                <db:sql>INSERT INTO PLANET(NAME) VALUES (:name)</db:sql>
+                <db:input-parameters>#[{ 'name' : vars.name }]</db:input-parameters>
+            </db:insert>
+        </body>
+    </operation>
+
+    <operation name="validate-and-update">
+        <parameters>
+            <parameter name="originalName" type="string"/>
+            <parameter name="newName" type="string"/>
+        </parameters>
+        <body>
+            <tns:validate aParameter="#[vars.originalName]"/>
+            <tns:validate aParameter="#[vars.newName]"/>
+            <db:update config-ref="dbConfig..">
+                <db:sql>update PLANET set NAME= :newName where NAME=':originalName'</db:sql>
+                <db:input-parameters>#[{'originalName' : vars.originalName, 'newName' : vars.newName}]</db:input-parameters>
+            </db:update>
+        </body>
+    </operation>
+
+    <operation name="validate">
+        <parameters>
+            <parameter name="aParameter" type="string"/>
+        </parameters>
+        <body>
+            <!-- validate the 'aParameter' != null -->
+            <!-- validate the 'aParameter' wasn't already added -->
+            <!-- validate the 'aParameter' matches some criteria -->
+            <!-- validate the 'aParameter' ... and so on -->
+        </body>
+    </operation>
+</module>
+----
+
+`config-ref` は​_同じ_​モジュールへの参照であるために含まれていません。つまり、すべてのグローバルインスタンスが操作間で共有されることを意味します。
+
+== テスト接続の提供
+
+設計時には、グローバル要素の属性に間違った値 (間違ったユーザ名やパスワード、不適切な URL など) が提供された場合にフィードバックを提供すると便利です。このフィードバックを提供するには、接続テストをサポートするグローバル要素をモジュールに組み込む必要があります。
+
+たとえば、`file:connection` 要素をモジュールに組み込むことで、XML SDK モジュール `<module name="module-using-file">` でファイルコネクタからの接続テスト機能を使用できます。デフォルトでは、モジュールはファイル設定から接続テスト機能を取得し、サポートします。
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-using-file"  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:file="http://www.mulesoft.org/schema/mule/file"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+
+    <property name="workingDir" type="string"/>
+    <file:config name="fileConfig">
+        <file:connection workingDir="#[vars.workingDir]"/>
+    </file:config>
+</module>
+----
+
+接続テストは、UI から、`fileConfig` でカプセル化されたグローバル要素に委任されます。
+
+テスト接続を提供する 2 つ以上のグローバル要素がモジュールに含まれる場合、使用するグローバル要素を `xmlns:connection="true"` 属性でマークしていないと、モジュールを作成したときにエラーが発生します。次に例を示します。
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-using-file"  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:file="http://www.mulesoft.org/schema/mule/file"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+
+    <property name="workingDir" type="string"/>
+
+    <!-- notice how the following global element is marked for test connection -->
+    <file:config name="fileConfig" xmlns:connection="true">
+        <file:connection workingDir="#[vars.workingDir]"/>
+    </file:config>
+
+    <file:config name="anotherFileConfig">
+        <file:connection workingDir="#[vars.workingDir]"/>
+    </file:config>
+</module>
+----
+
+== エラーの処理
+
+場合によって、`<body>` 内の操作により、そのままの形で伝播すべきでないエラーコードがスローされることがあります。この場合、エンドユーザにとってわかりやすいものにコードを再マップする必要があります。また、問題が `<operation>` 内の条件に関連する場合があります。
+
+前者の場合、XML SDK はxref:4.1@mule-runtime::mule-error-concept.adoc#about-error-mappings[エラーマッピング]を使用します。後者の場合、xref:4.1@mule-runtime::raise-error-component-reference.adoc[Raise Error コンポーネント]が使用されます。
+
+次の例は、2 つの数値を除算する操作でエラーマッピングを実行します。
+
+[source,xml,linenums]
+----
+<module name="Math XML SDK"...>
+  ...
+  <operation name="div" doc:description="Takes two numbers and returns the division of them">
+    <parameters>
+      <parameter name="numberA" type="number"/>
+      <parameter name="numberB" type="number"/>
+    </parameters>
+    <body>
+      <mule:set-payload value="#[vars.numberA / vars.numberB]"/>
+    </body>
+    <output type="number"/>
+  </operation>
+</module>
+----
+
+除数 `numberB` がゼロの場合、`div` 操作は `MULE:EXPRESSION` ランタイムエラーになりますが、エラーの詳細が十分に説明されていません。
+
+より詳細なエラーを作成するには、エラーマッピングを使用して、`div` 操作で `MATH-XML-SDK:DIVISION_BY_ZERO` エラーを生成することができます。次に例を示します。
+
+[source,xml,linenums]
+----
+<module name="Math XML SDK"...>
+  ...
+  <operation name="div" doc:description="Takes two numbers and returns the division of them">
+    <parameters>
+      <parameter name="numberA" type="number"/>
+      <parameter name="numberB" type="number"/>
+    </parameters>
+    <body>
+      <mule:set-payload value="#[vars.numberA / vars.numberB]">
+        <mule:error-mapping targetType="DIVISION_BY_ZERO" sourceType="MULE:EXPRESSION"/>
+      </mule:set-payload>
+    </body>
+    <output type="number"/>
+  </operation>
+  <errors>
+    <error type="DIVISION_BY_ZERO"/>
+  </errors>
+</module>
+----
+
+式 `#[vars.numberA / vars.numberB]` の評価の前に検証を実行することで、同じエラーを生成できます。式が失敗した場合、`MATH-XML-SDK:DIVISION_BY_ZERO` エラーが発生します。次に例を示します。
+
+[source,xml,linenums]
+----
+<module name="Math XML SDK"...>
+  ...
+  <operation name="div" doc:description="Takes two numbers and returns the division of them">
+    <parameters>
+      <parameter name="numberA" type="number"/>
+      <parameter name="numberB" type="number"/>
+    </parameters>
+    <body>
+      <mule:choice>
+        <mule:when expression="#[vars.customError]">
+          <mule:raise-error type="MATH-XML-SDK:DIVISION_BY_ZERO" description="Division by zero"/>
+        </mule:when>
+      </mule:choice>
+      <mule:set-payload value="#[vars.numberA / vars.numberB]" />
+    </body>
+    <output type="number"/>
+  </operation>
+  <errors>
+    <error type="DIVISION_BY_ZERO"/>
+  </errors>
+</module>
+----
+
+[[xml_sdk_catalog]]
+== XML SDK カタログ
+
+`<property>` と `<parameter>` の標準データ型はプリミティブ型 (`string`、`boolean`、`number`、`date`、`datetime`、`localdatetime`、`time`、`localtime`、`timezone`、`binary`、`any`、`regex`) です。
+
+プリミティブ型よりも複雑な構造の型を定義するには、モジュールに挿入するデータ型のカタログを作成します。この例では、次のコンテンツのカタログファイル (`hello-smart-connector/smart-connector/src/main/resources/module-Hello-catalog.xml`) を作成します。
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<catalogs xmlns="http://www.mulesoft.org/schema/mule/types" >
+    <catalog name="PersonXsdType" format="application/xml">
+        <schema format="application/xml+schema" location="./person-schema.xsd" />
+    </catalog>
+    <catalog name="PersonJsonType" format="application/json">
+        <schema format="application/json+schema" location="./person-schema.json" />
+    </catalog>
+</catalogs>
+----
+
+このカタログファイルは XSD および JSON スキーマファイルを参照します。
+
+* `person-schema.xsd`。次のコンテンツが含まれます。
++
+[source,xml,linenums]
+----
+<xs:schema targetNamespace="http://uri" attributeFormDefault="unqualified" elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="Person">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element type="xs:string" name="name"/>
+        <xs:element type="xs:string" name="lastName"/>
+        <xs:element type="xs:integer" name="age"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>
+----
++
+* `person-schema.json`。次のコンテンツが含まれます。
++
+[source,json,linenums]
+----
+{
+  "type": "object",
+  "properties": {
+    "age": {
+      "type": "integer"
+    },
+    "name": {
+      "type": "string"
+    },
+    "lastname": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}
+----
+
+`tree hello-smart-connector/smart-connector` フォルダの構造は次のようになります。
+
+[source,text,linenums]
+----
+➜  ~ tree hello-smart-connector/smart-connector
+hello-smart-connector/smart-connector
+├── pom.xml
+└── src
+    └── main
+        └── resources
+            ├── module-Hello-catalog.xml
+            ├── module-Hello.xml
+            ├── person-schema.json
+            └── person-schema.xsd
+----
+
+スキーマの準備ができたら、関連付けられたカタログ (`PersonXsdType` および `PersonJsonType`) を参照することで、定義された型を使用します。次に例を示します。
+
+[[example]]
+[source,xml,linenums]
+----
+<module name="Hello XML SDK" prefix="module-hello" ... >
+  ...
+  <operation name="person-xml-to-json" doc:description="Takes a Person in XML format and translates it to JSON">
+    <parameters>
+      <parameter name="content" type="PersonXsdType::{http://uri}Person"/>
+    </parameters>
+    <body>
+      <ee:transform>
+        <ee:set-payload><![CDATA[
+          %dw 2.0
+          %output application/json encoding='UTF-8'
+          ---
+          {
+            "name" : vars.content.person.name,
+            "lastname" : vars.content.person.lastName,
+            "age" : vars.content.person.age as Number
+          }
+          ]]></ee:set-payload>
+      </ee:transform>
+    </body>
+    <output type="PersonJsonType"/>
+  </operation>
+  <operation name="person-json-to-xml" doc:description="Takes a Person in JSON format and translates it to XML">
+    <parameters>
+      <parameter name="content" type="PersonJsonType"/>
+    </parameters>
+    <body>
+      <ee:transform>
+        <ee:set-payload><![CDATA[
+          %dw 2.0
+          %output application/xml
+          ---
+          person : vars.content
+          ]]></ee:set-payload>
+      </ee:transform>
+    </body>
+    <output type="PersonXsdType::{http://uri}Person"/>
+  </operation>
+<module/>
+----
+
+JSON スキーマの `type` 属性の値が、そのスキーマ (`PersonJsonType`) を含むカタログの名前になっています。ただし、XML スキーマの場合、`type` 属性の値では 2 つのコロン `::` と qname (修飾名) 参照が `Person` 要素に付加されます (`PersonXsdType::{http://uri}Person`)。
+
+JSON から XML への DataWeave 変換 (`<ee:transform/>` 内で示されている) を実行するには、モジュールで必須スキーマ (`mule-ee.xsd`) を見つけることができるように次の連動関係を POM ファイルに追加する必要があります。
+
+[source,xml,linenums]
+----
+<dependency>
+    <groupId>com.mulesoft.mule.runtime.modules</groupId>
+    <artifactId>mule-module-spring-config-ee</artifactId>
+    <version>${mule.version}</version>
+    <scope>provided</scope>
+</dependency>
+----
+
+上記の<<example,例>>の操作を Mule アプリケーションで使用するには、値を操作に提供する必要があります。次に例を示します。
+
+[source,xml,linenums]
+----
+<mule ...>
+  <flow name="person-xml-2-json-flow">
+    <!-- create an XML Person and store it in the payload -->
+    <ee:transform>
+      <ee:set-payload><![CDATA[
+        %dw 2.0
+        %output application/xml
+        ---
+        person : {
+          name : "Lautaro",
+          lastName: "Fernandez",
+          age : 54
+        }
+        ]]></ee:set-payload>
+    </ee:transform>
+    <!-- call the operation -->
+    <module-hello:person-xml-to-json content="#[payload]"/>
+    <!-- at this point, the payload is a JSON Person -->
+  </flow>
+
+  <flow name="person-json-2-xml-flow">
+    <!-- create a JSON Person and store it in the payload -->
+    <ee:transform>
+      <ee:set-payload><![CDATA[
+        %dw 2.0
+        %output application/json
+        ---
+        {
+          name : "Lautaro",
+          lastName: "Fernandez",
+          age : 54
+        }
+        ]]></ee:set-payload>
+    </ee:transform>
+    <!-- call the operation -->
+    <module-hello:person-json-to-xml content="#[payload]"/>
+    <!-- at this point, the payload is an XML Person -->
+  </flow>
+</mule>
+----
+
+プリミティブ型ではない値をパラメータ化すると、定義済みの `<operation>` で値を `role="CONTENT"` として宣言できるため、`<flow>` 内で追加のプロセッサを使用して操作をコールする必要がなくなります。この例の `person-xml-to-json` 操作でこの属性を `content` パラメータに追加します。
+
+[[example2]]
+[source,xml,linenums]
+----
+<module name="Hello XML SDK" prefix="module-hello" ... >
+  ...
+  <operation name="person-xml-to-json" doc:description="Takes a Person in XML format and translates it to JSON">
+    <parameters>
+      <parameter name="content" type="PersonXsdType::{http://uri}Person" role="CONTENT"/>
+    </parameters>
+    <body>
+      <ee:transform>
+        <ee:set-payload><![CDATA[
+          %dw 2.0
+          %output application/json encoding='UTF-8'
+          ---
+          {
+            "name" : vars.content.person.name,
+            "lastname" : vars.content.person.lastName,
+            "age" : vars.content.person.age as Number
+          }
+          ]]></ee:set-payload>
+      </ee:transform>
+    </body>
+    <output type="PersonJsonType"/>
+  </operation>
+  ...
+<module/>
+----
+
+上記の<<example2,例>>の操作を Mule アプリケーションで使用するには、値を操作に提供する必要があります。次に例を示します。
+
+[source,xml,linenums]
+----
+<mule ...>
+  <flow name="person-xml-2-json-using-content-flow">
+    <!-- call the operation -->
+    <module-hello:person-xml-to-json>
+      </module-hello:content><![CDATA[
+        %dw 2.0
+        %output application/xml
+        ---
+        person : {
+          name : "Lautaro",
+          lastName: "Fernandez",
+          age : 54
+        }]]>
+      </module-hello:content>
+    </module-hello:person-xml-to-json>
+    <!-- at this point, the payload is a JSON Person -->
+  </flow>
+  ..
+</mule>
+----
+
+== XML SDK モジュールの稼働サンプル
+
+https://github.com/mulesoft-labs/smart-connectors-integration-tests には、次のディレクトリが含まれます。
+
+* `apps-using-smart-connectors`: XML SDK モジュールを使用する Mule アプリケーション。
+* `smart-connectors`: DataWeave、HTTP コネクタ、ファイルコネクタ、検証モジュールなどを組み込む XML SDK モジュール。
+
+このいくつかの例を以下のサブセクションで説明します。
+
+[[module-using-core]]
+=== 例: Core コンポーネントの使用
+
+この例では、Set Payload (`mule:set-payload`) などの Core コンポーネントを組み込みます。
+
+GitHub の場所:  https://github.com/mulesoft-labs/smart-connectors-integration-tests/tree/master/smart-connectors/smart-connector-using-core[smart-connectors/smart-connector-using-core]
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-using-core"
+        doc:description="This module relies entirely in runtime provided components (no other Plugin dependencies)"
+
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:mule="http://www.mulesoft.org/schema/mule/core"
+        xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+
+    <operation name="set-payload-hardcoded" doc:description="Sets the payload to the String value 'Wubba Lubba Dub Dub'">
+        <body>
+            <mule:set-payload value="Wubba Lubba Dub Dub"/>
+        </body>
+        <output type="string" doc:description="Payload's output"/>
+    </operation>
+
+    <operation name="set-payload-hardcoded-two-times" doc:description="Sets the payload to the String value 'Wubba Lubba Dub Dub'">
+        <body>
+            <mule:set-payload value="Wubba Lubba Dub Dub"/>
+            <mule:set-payload value="#[payload ++ 'Dub Dub']"/>
+        </body>
+        <output type="string" doc:description="Payload's output"/>
+    </operation>
+
+ </module>
+----
+
+=== 例: JSON カスタム型の使用
+
+この例では JSON 型を組み込みます。
+
+GitHub の場所: https://github.com/mulesoft-labs/smart-connectors-integration-tests/tree/master/smart-connectors/smart-connector-using-custom-types-json[smart-connectors/smart-connector-using-custom-types-json]
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-using-custom-types-json"
+        doc:description="This module relies entirely in runtime provided components (no other Plugin dependencies)"
+
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:mule="http://www.mulesoft.org/schema/mule/core"
+        xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+
+    <operation name="set-payload-hardcoded" doc:description="Sets the payload to the String value 'Wubba Lubba Dub Dub'">
+        <body>
+            <mule:set-payload value="Wubba Lubba Dub Dub"/>
+        </body>
+        <output type="a-custom-type" doc:description="Payload's output"/>
+    </operation>
+ </module>
+----
+
+.カタログ
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<catalogs xmlns="http://www.mulesoft.org/schema/mule/types" >
+    <catalog name="a-custom-type" format="application/json">
+        <schema format="application/json+schema" location="./a-custom-type-schema.json" />
+    </catalog>
+</catalogs>
+----
+
+.スキーマ
+[source,json,linenums]
+----
+{
+  "type": "object",
+  "properties": {
+    "number": {
+      "type": "number"
+    },
+    "street_name": {
+      "type": "string"
+    },
+    "street_type": {
+      "type": "string",
+      "enum": [
+        "Street",
+        "Avenue",
+        "Boulevard"
+      ]
+    }
+  },
+  "additionalProperties": false
+}
+----
+
+=== 例: カスタム XML 型の使用
+
+この例ではカスタム XML 型を組み込みます。
+
+GitHub の場所: https://github.com/mulesoft-labs/smart-connectors-integration-tests/tree/master/smart-connectors/smart-connector-using-custom-types-xsd[smart-connectors/smart-connector-using-custom-types-xsd]
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-using-custom-types-xsd"
+        doc:description="This module relies entirely in runtime provided components (no other Plugin dependencies)"
+
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:mule="http://www.mulesoft.org/schema/mule/core"
+        xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+
+    <operation name="operation-with-custom-types">
+        <parameters>
+            <parameter name="value" type="XsdType1::Root"/>
+        </parameters>
+        <body>
+            <mule:set-payload value="hello world!"/>
+        </body>
+        <output type="string"/>
+    </operation>
+
+ </module>
+----
+
+.カタログ
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<catalogs xmlns="http://www.mulesoft.org/schema/mule/types" >
+    <catalog name="XsdType1" format="application/xml">
+        <schema format="application/xml+schema" location="./type1-schema.xsd" />
+    </catalog>
+</catalogs>
+----
+
+.スキーマ 1
+[source,xml,linenums]
+----
+<xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <xs:element name="Root">
+        <xs:complexType>
+            <xs:annotation>
+                <xs:documentation xml:lang="en">
+                    A user with all the information
+                </xs:documentation>
+            </xs:annotation>
+            <xs:sequence>
+                <xs:element type="xs:string" name="name"/>
+                <xs:element type="xs:string" name="lastName"/>
+                <xs:element type="xs:boolean" name="male"/>
+                <xs:element type="xs:integer" name="age"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+</xs:schema>
+----
+
+=== 例: DataWeave の使用
+
+この例では、Transform (`ee:transform`) コンポーネントを使用して DataWeave を組み込みます。
+
+GitHub の場所: https://github.com/mulesoft-labs/smart-connectors-integration-tests/tree/master/smart-connectors/smart-connector-using-dw[smart-connectors/smart-connector-using-dw]
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-using-dw"
+        doc:description="This module relies entirely in runtime provided components (no other Plugin dependencies) and DW"
+
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:mule="http://www.mulesoft.org/schema/mule/core"
+        xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+        xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+           http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <operation name="set-payload-through-dw" doc:description="Sets the payload to the String value 'Wubba Lubba Dub Dub'">
+        <body>
+            <ee:transform>
+                <ee:set-payload><![CDATA[
+                    %dw 2.0
+                    %output application/json encoding='UTF-8'
+                    ---
+                    'Wubba Lubba Dub Dub'
+            ]]></ee:set-payload>
+            </ee:transform>
+        </body>
+        <output type="string" doc:description="Payload's output"/>
+    </operation>
+ </module>
+----
+
+=== 例: ファイルコネクタの使用
+
+場所 `https://github.com/mulesoft-labs/smart-connectors-integration-tests/tree/master/smart-connectors/smart-connector-using-file[smart-connectors/smart-connector-using-file]`: ファイルコネクタにより異なる (`file:list` など)
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-using-file"
+
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:file="http://www.mulesoft.org/schema/mule/file"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+
+    <property name="workingDir" type="string"/>
+    <property name="filenamePattern" type="string"/>
+
+    <file:config name="file">
+        <file:connection workingDir="#[vars.workingDir]"/>
+    </file:config>
+    <file:matcher name="globalMatcher" directories="REQUIRE" filenamePattern="#[vars.filenamePattern]" />
+
+    <operation name="list">
+        <parameters>
+            <parameter name="path" type="string"/>
+        </parameters>
+        <body>
+            <file:list directoryPath="#[vars.path]" config-ref="file" matcher="globalMatcher"/>
+        </body>
+        <output type="string"/>
+    </operation>
+
+ </module>
+----
+
+=== HTTP コネクタの使用
+
+この例では、HTTP 要求 (`http:requester`) を使用して HTTP コネクタを組み込みます。
+
+GitHub の場所: https://github.com/mulesoft-labs/smart-connectors-integration-tests/tree/master/smart-connectors/smart-connector-using-http[smart-connectors/smart-connector-using-http]
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-using-http"
+
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:mule="http://www.mulesoft.org/schema/mule/core"
+        xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+        xmlns:httpn="http://www.mulesoft.org/schema/mule/http"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+           http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+    <property name="username" type="string" doc:description="the login user credential."/>
+    <property name="password" type="string" password="true" doc:description="the login password credential"/>
+
+    <httpn:request-config name="github-httpreq-config" basePath="/">
+        <httpn:request-connection host="api.github.com" protocol="HTTPS" port="443">
+            <httpn:authentication>
+                <httpn:basic-authentication username="#[vars.username]" password="#[vars.password]"/>
+            </httpn:authentication>
+        </httpn:request-connection>
+    </httpn:request-config>
+
+    <operation name="search-issues" doc:description="Get a list of Issue objects that match the specified filter data">
+        <parameters>
+            <parameter name="repo" type="string" doc:description="the repository name"/>
+            <parameter name="since" type="string" defaultValue="2017-02-06T09:29:49Z" doc:description="date from which restoring issues, sample: 2016-07-31T12:37:07Z"/>
+        </parameters>
+        <body>
+            <mule:logger level="ERROR" doc:name="Logger" message="#['repo:[' ++ vars.repo + '], since:[' + vars.since ++']']" />
+            <httpn:request config-ref="github-httpreq-config" path="search/issues" method="GET" >
+                <httpn:query-params>
+                    #[{q : 'repo: $(vars.repo) created:>=$(vars.since)', type: 'Issues'}]
+                </httpn:query-params>
+            </httpn:request>
+            <mule:set-payload value="#[payload]" mimeType="application/json" />
+        </body>
+        <output type="string" doc:description="List of issues"/>
+    </operation>
+
+ </module>
+----
+
+=== 例: 別の XML SDK の使用
+
+この例は、XML SDK モジュール `module-using-core` (<<module-using-core,「例: Core コンポーネントの使用」>>を参照) を使用する 1 つの XML SDK モジュール (`module-using-smart-connector`) を示しています。
+
+GitHub の場所: https://github.com/mulesoft-labs/smart-connectors-integration-tests/tree/master/smart-connectors/smart-connector-using-smart-connector[smart-connectors/smart-connector-using-smart-connector]
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-using-smart-connector"
+
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:module-using-core="http://www.mulesoft.org/schema/mule/module-using-core"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/module-using-core http://www.mulesoft.org/schema/mule/module-using-core/current/module-using-core.xsd">
+
+    <operation name="proxy-set-payload-hardcoded">
+        <body>
+            <module-using-core:set-payload-hardcoded/>
+        </body>
+        <output type="string"/>
+    </operation>
+
+ </module>
+----
+
+=== 検証モジュールの使用
+
+この例では、検証モジュール、具体的には `validation:is-email` を使用します。
+
+GitHub の場所: https://github.com/mulesoft-labs/smart-connectors-integration-tests/tree/master/smart-connectors/smart-connector-using-validation[smart-connectors/smart-connector-using-validation]
+
+[source,xml,linenums]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<module name="module-using-validation"
+
+        xmlns="http://www.mulesoft.org/schema/mule/module"
+        xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+           http://www.mulesoft.org/schema/mule/module http://www.mulesoft.org/schema/mule/module/current/mule-module.xsd
+           http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+
+    <operation name="is-really-email">
+        <parameters>
+            <parameter name="inputEmail" type="string"/>
+        </parameters>
+        <body>
+            <validation:is-email email="#[vars.inputEmail]"/>
+        </body>
+        <output type="boolean"/>
+    </operation>
+
+ </module>
+----
+
+== XML SDK の制限事項
+
+現在、SDK には次の制限事項があります。
+
+* XML SDK では、ソース (`<scheduler>` など) やルータではなくアウトバウンド操作のみが提供されます。
+* 操作では、再帰的コールはサポートされません。

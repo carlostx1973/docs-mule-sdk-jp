@@ -1,0 +1,224 @@
+= OAuth
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, セキュリティ, oauth
+
+OAuth は、多くの API で使用されている認証プロトコルであり、ユーザのログイン情報を共有することなく、ユーザの代わりにアプリケーションで認証を行えるようにします。このプロトコルについての詳細は https://oauth.net/2/[https://oauth.net/2/] を参照してください。
+
+SDK は、_OAuth 対応_​モジュールの開発をサポートしており、これらのモジュールでは OAuth プロトコルで認証される接続を確立できます。これによって (_非常に_​複雑なプロトコルである) OAuth プロトコルの複雑さの大半をエンドユーザから隠して、シンプルで使いやすいモジュールを実現し、エンドユーザが OAuth について一通り学習しなくても済むようにします。
+
+SDK による OAuth のサポートは以下に制限されます。
+
+* OAuth バージョン 2 のみ
+* 認証コード許可種別のみ
+
+== OAuth 対応モジュールの開発
+
+OAuth のサポートは、`@AuthorizationCode` アノテーションによって `ConnectionProvider` レベルで追加されます。
+
+Salesforce コネクタ用の `ConnectionProvider` を極端に簡素化した例を示します。
+
+[source,java,linenums]
+----
+@AuthorizationCode(
+    authorizationUrl = "https://login.salesforce.com/services/oauth2/authorize",
+    accessTokenUrl = "https://login.salesforce.com/services/oauth2/token")
+public class SalesforceOAuthConnectionProvider<C> implements ConnectionProvider<SalesforceClient> {
+
+   @Parameter
+   @Optional(defaultValue = "34.0")
+   private Double apiVersion;
+
+  /**
+   * Tailors the login page to the user's device type.
+   */
+  @OAuthParameter
+  private String display;
+
+  /**
+   * Avoid interacting with the user
+   */
+  @OAuthParameter
+  @Optional(defaultValue = "false")
+  private boolean immediate;
+
+  /**
+   * Specifies how the authorization server prompts the user for reauthentication and reapproval
+   */
+  @OAuthParameter
+  @Optional(defaultValue = "true")
+  private boolean prompt;
+
+  @OAuthCallbackValue(expression = "#[payload.instance_url]")
+  private String instanceId;
+
+  @OAuthCallbackValue(expression = "#[payload.id]")
+  private String userId;
+
+  private AuthorizationCodeState state;
+
+  @Override
+  public SalesforceClient connect() throws ConnectionException {
+    if (state.getAccessToken() == null) {
+      throw new SalesforceException(MessageFormat.format(COULD_NOT_EXTRACT_FIELD, "accessToken"));
+    }
+
+    if (instanceId == null) {
+      throw new SalesforceException(MessageFormat.format(COULD_NOT_EXTRACT_FIELD, "instanceId"));
+    }
+
+    return new SalesforceClient(state.getAccessToken(), instanceId, apiVersion);
+  }
+
+  public void disconnect(SalesforceClient connection) {
+    connection.close();
+  }
+
+  @Override
+  public ConnectionValidationResult validate(SalesforceClient connection) {
+    return success();
+  }
+}
+----
+
+SDK の他の接続と同様に、クラスは `ConnectionProvider` を実装しています。  オブジェクトによって認証された操作は、プロバイダが返す `SalesforceClient` オブジェクトを処理します。このデザインアプローチの重要な点は、コネクタは簡素な旧式の基本認証を使用する `ConnectionProvider` を別に定義することもできるため、使用する認証方法と操作が切り離され、すべての操作の互換性が保証されるということです。
+
+== @AuthorizationCode
+
+このアノテーションは、この接続プロバイダが認証コード許可種別を使用した OAuth ダンスを必要とすることを示します。このアノテーションには以下の属性があります。
+
+[source,java,linenums]
+----
+public @interface AuthorizationCode {
+
+  /**
+   * @return The Url of the endpoint which provides the access tokens
+   */
+  String accessTokenUrl();
+
+  /**
+   * @return The url of the authorization endpoint which starts the OAuth dance
+   */
+  String authorizationUrl();
+
+  /**
+   * @return Expression to be used on the response of {@link #accessTokenUrl()} to extract the access token
+   */
+  String accessTokenExpr() default "#[payload.access_token]";
+
+  /**
+   * @return Expression to be used on the response of {@link #accessTokenUrl()} to extract the access token expiration
+   */
+  String expirationExpr() default "#[payload.expires_in]";
+
+  /**
+   * @return Expression to be used on the response of {@link #accessTokenUrl()} to extract the refresh token
+   */
+  String refreshTokenExpr() default "#[payload.refresh_token]";
+
+  /**
+   * @return The default set of scopes to be requested, as a comma separated list. Empty string means no default scopes.
+   */
+  String defaultScopes() default "";
+
+}
+----
+
+== 接続管理戦略
+
+上記の例のプロバイダは、`ConnectionProvider` インターフェースの特殊化を実装していないため、OAuth メカニズムを他の接続管理戦略と組み合わせることができます。使用するインターフェース (`PoolingConnectionProvider`、`CachedConnectionProvider`、`ConnectionProvider` など) によって、接続オブジェクトをプールまたはキャッシュしたり、毎回ゼロから作り直したりすることができます。接続管理の詳細については、<<connections#,接続性のリファレンス>>についての説明を参照してください。
+
+このシナリオで標準 (汎用) `ConnectionProvider` インターフェースを使用する際のセマンティクスに注意してください。通常の「非 OAuth」接続プロバイダでは、標準インターフェースを使用することは、コンポーネントが接続を必要とするたびに新しい接続が作成され、コンポーネントの終了時に破棄されることを意味します。これは OAuth のケースにも当てはまりますが、OAuth ダンスが再び実行されるという意味ではありません。OAuth でも新しい接続オブジェクトが作成されますが、同じアクセストークンが有効である間は再利用されます。
+
+== 通常のパラメータと OAuth パラメータの違い
+
+この `ConnectionProvider` は、他のすべての接続プロバイダと同様にパラメータを持ちます。ただし、通常のパラメータと `@OAuthParameter` では概念が異なりますので注意してください。
+
+`OAuthParameter` パラメータは、OAuth ダンスの実行中にカスタムパラメータとして使用されます。たとえば、接続プロバイダが `apiVersion` パラメータを使用して `SalesforceClient` を作成する場合、即時パラメータは、実際にはサービスプロバイダへの OAuth 要求で送信されます。
+
+モジュールの視点から見ると、OAuth パラメータもユーザが値を提供するパラメータの 1 つに過ぎません。これらのパラメータには、`@Optional`、`@Expression`、および従来の `@Parameter` アノテーションで使用できる他のすべてのアノテーションを組み合わせることができます。DSL では、通常のパラメータと OAuth パラメータは一緒に表示されます。モジュールのエンドユーザには違いが一切分かりません。
+
+=== 要求の別名
+
+カスタム OAuth パラメータには、Java でサポートされていない文字が含まれている場合があります。「Api-Key」などです。「-」は項目名には使用できないため、`@OAuthParameter` アノテーションの `requestAlias` という省略可能なパラメータで、次のように指定できます。
+
+[source,java,linenums]
+----
+@OAuthParameter(requestAlias = "api-key")
+private String apiKey;
+----
+
+== @OAuthCallbackValue
+
+サービスプロバイダが OAuth コールバックで返す応答からは、コールバック値が抽出されます。ほとんどのサービスプロバイダは標準項目 (アクセストークンや更新トークン、有効期限情報など) を返すだけですが、追加の項目を返すプロバイダもあります。たとえば Salesforce の場合は、ユーザ ID とインスタンス ID を返します。
+
+このアノテーションには、応答に適用して値を抽出するための式が含まれています。抽出された値は、接続プロバイダが使用する項目に割り当てられます。`connect()`、`validate()`、または `disconnect()` メソッドを呼び出すと、項目が設定されて使用可能になります。
+
+== @AuthorizationCodeState
+
+`AuthorizationCode` アノテーションが付加されたすべての `ConnectionProvider` は、`AuthorizationCodeState` 型の項目を 1 つ (だけ) *持っていなければなりません*。
+
+この項目は、OAuth ダンスの結果に関する情報を含む、シンプルな不変の POJO です。この POJO には以下の情報が含まれます。
+
+[source,java,linenums]
+----
+public interface AuthorizationCodeState {
+
+  /**
+   * @return The obtained access token
+   */
+  String getAccessToken();
+
+  /**
+   * @return The obtained refresh token
+   */
+  Optional<String> getRefreshToken();
+
+  /**
+   * @return The id of the user that was authenticated
+   */
+  String getResourceOwnerId();
+
+  /**
+   * @return The access token's expiration. The actual format of it depends on the OAuth provider
+   */
+  Optional<String> getExpiresIn();
+
+  /**
+   * @return The OAuth state that was originally sent
+   */
+  Optional<String> getState();
+
+  /**
+   * @return The url of the authorization endpoint that was used in the authorization process
+   */
+  String getAuthorizationUrl();
+
+  /**
+   * @return The url of the access token endpoint that was used in the authorization process
+   */
+  String getAccessTokenUrl();
+
+  /**
+   * @return The OAuth consumer key that was used in the authorization process
+   */
+  String getConsumerKey();
+
+  /**
+   * @return The OAuth consumer secret that was used in the authorization process
+   */
+  String getConsumerSecret();
+
+  /**
+   * @return The external callback url that the user configured or {@link Optional#empty()} if none was provided
+   */
+  Optional<String> getExternalCallbackUrl();
+}
+----
+
+プロバイダは、このオブジェクトを介して `accessToken` や OAuth ダンス中に取得した他の標準情報にアクセスします。元の Salesforce の例を見直せば、`connect()` メソッドがこの POJO を利用してクライアントを作成していることがわかります。
+
+== 次のステップ
+
+<<oauth-configuring#, OAuth 対応モジュールの設定>>

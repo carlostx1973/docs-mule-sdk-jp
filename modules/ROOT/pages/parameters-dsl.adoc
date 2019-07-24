@@ -1,0 +1,94 @@
+= パラメータ DSL のカスタマイズ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: パラメータ, パラメータ, mule, sdk, dsl, xml, 構文
+
+コンポーネントパラメータのいくつかの側面をカスタマイズしたり制限したりすることで、ユーザエクスペリエンスを最大限に高めることができます。たとえば、関係のないパラメータを隠すことで UI が見やすくなります。
+
+== 参照または値としての文字列の受け取り
+
+次のような操作があるとします。
+
+[source,java,linenums]
+----
+public void send(@Connection MyConnection connection, Object value) {
+    connection.doSend(value);
+}
+----
+
+これは次のように呼び出します。
+
+[source,xml,linenums]
+----
+<demo:send value="requestPayload"/>
+----
+
+デフォルトでは、Mule は `requestPayload` がグローバルリストや POJO などのレジストリ内のオブジェクトへの参照であると見なします。Extension クラスで実際に `requestPayload` 文字列を受け取りたい場合は、`@ParameterDsl` アノテーションを使用して操作の宣言を変更します。
+
+[source,java,linenums]
+----
+public void send(@Connection MyConnection connection, @ParameterDsl(allowReferences = false) Object value) {
+    connection.doSend(value);
+}
+----
+
+この変更によって参照の使用が明示的に無効化されるため、操作は文字列値を受け取ります。
+
+== 複雑な型の使い方の定義
+
+すべてのモジュールは、モジュール API に準拠した POJO を公開できます。
+
+[source,java,linenums]
+----
+// This is the POJO declaration
+public class Door {
+
+  @Parameter
+  private boolean isLocked;
+
+  @Parameter
+  private String color;
+
+}
+
+// This is the configuration
+public class HouseConfig {
+
+  @Parameter
+  private Door mainDoor;
+
+}
+----
+
+このようなパラメータがある場合は、`Door` が DSL でどのように使用されるかをモジュール開発者が設定する必要があります。その目的のために `@TypeDsl` アノテーションが用意されており、これによって 2 つの重要な設定が可能になります。
+
+* `allowInlineDefinition`: POJO (この例では `Door`) をパラメータとして使用する要素において、その POJO をインラインで宣言できるかどうかを定義します。
+`true` であれば、次のように宣言できます。
+
++
+[source,xml,linenums]
+----
+<demo:config name="myConfig"> // <1>
+    <demo:door isLocked="true" color="red"/> // <2>
+</demo:config>
+----
+
++
+<1> config はパラメータのコンテナとして宣言されています。
+<2> `Door` は (`config` 内で) インラインで定義されています。
+
+* `allowTopLevelDefinition`: POJO (この例では `Door`) をアプリケーションの最上位要素として宣言できるかどうかを定義します。
+`true` であれば、次のように宣言できます。
+
++
+[source,xml,linenums]
+----
+<demo:door name="MyGlobalDoor" isLocked="true" color="red"/> // <1>
+
+<demo:config name="myConfig" door-ref="MyGlobalDoor"/> // <2>
+----
+
++
+<1> `Door` はアプリケーションのグローバル要素として宣言されています。
+<2> `config` は別に宣言され、`door-ref` 属性と共にグローバル要素 `Door` を名前で参照しています。

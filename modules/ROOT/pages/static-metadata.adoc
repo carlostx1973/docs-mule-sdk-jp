@@ -1,0 +1,149 @@
+= カスタム静的メタデータ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+
+*バージョン 1.1 以降で使用可能*
+
+静的メタデータを使用して、コンパイル時に既知であり、コネクタの jar 内の型から使用できるメタデータを参照します。単純な Java 型は、モデルの中で開発者が定義したカスタム POJO であり、この静的メタデータの一部でもあります。静的として該当する部分は、他のパラメータに依存することなく、構造が十分に知られていること、または構造を調査できることです。
+
+静的メタデータが動的よりも優れている点は、静的メタデータは変化しないためにその構造を再計算する必要がないことです。つまり、アプリケーションを開発するときにすでに解決していることです。
+
+
+単純な Java 型または POJO を戻り値またはパラメータの型として使用する場合、SDK は要素に適した静的型を作成しますが、型が Java オブジェクト (Json スキーマ、XSD など) として定義されていない場合、ユーザは使用する型の構造を正確に把握し、SDK が提供するカスタム静的メタデータ機能を使用する必要があります。
+
+== XML 型および JSON 型
+
+特定の構造 (スキーマ) に従う JSON 型または XML 型のパラメータが操作で要求される場合があります。
+適切な XSD または JSON スキーマを使用して、これを DataSense に伝えることができます。
+
+NOTE: これは `InputStream` および `String` の Java 型パラメータでのみ機能します。
+
+=== JSON 型
+
+JSON 型の構造を決定するには、JSON スキーマを提供する必要があります。
+
+* `@OutputJsonType`
+
+[source,java,linenums]
+----
+@OutputJsonType(schema = "person-schema.json")
+public Result<InputStream, RetrieveAttributes> retrievePerson() {
+  // ...
+}
+----
+
+* `@AttributesJsonType`
+
+[source,java,linenums]
+----
+@AttributesJsonType(schema = "resolution-attributes-schema.json")
+public Result<Integer, InputStream> getSolution() {
+  // ...
+}
+----
+
+* @`InputJsonType`
+
+[source,java,linenums]
+----
+public void addPerson(@InputJsonType(schema = "person-schema.json") InputStream person) {
+  // ...
+}
+----
+
+=== XML 型
+
+XML の構造を決定するには、XSD ファイルと、読み込む要素を参照するために使用する修飾名を提供する必要があります。
+
+* `@OutputXmlType`
+
+[source,java,linenums]
+----
+@OutputXmlType(schema = "order.xsd", qname = "shiporder")
+public Result<InputStream, OrderAttributes> retrieveOrder() {
+  // ...
+}
+----
+
+* `@AttributesXmlType`
+
+[source,java,linenums]
+----
+@AttributesXmlType(schema = "order-attributes.xsd", qname = "attributes")
+public Result<Integer, InputStream> getOrderStatistics() {
+  // ...
+}
+----
+
+* `@InputXmlType`
+
+[source,java,linenums]
+----
+public void createOrder(@InputXmlType(schema = "order.xsd", qname = "shiporder") InputStream order) {
+  // ...
+}
+----
+
+== 静的型リゾルバ
+
+入力パラメータ、出力ペイロード、または出力属性のカスタム静的メタデータを解決する方法はよく似ています。次の例を参照してください。
+
+各例のリゾルバは、`StaticResolver` を実装する抽象クラスを拡張します。
+`getStaticMetadata` は、メタデータを解決するために実装する必要があるメソッドです。
+
+=== InputStaticTypeResolver
+
+操作の入力パラメータでカスタム静的メタデータの解決方法を使用するには、パラメータに `@TypeResolver` アノテーションを付加し、アノテーションの値を `InputStaticTypeResolver` にする必要があります。
+
+これは `InputStaticTypeResolver` の例であり、メソッド `getStaticMetadata` を実装する必要があります。
+
+[source,java,linenums]
+----
+public class JsonPersonInputStaticTypeResolver extends InputStaticTypeResolver {
+  @Override
+  public MetadataType getStaticMetadata() {
+    ObjectTypeBuilder object = BaseTypeBuilder.create(MetadataFormat.JSON).objectType();
+    object.id("json-object");
+    object.addField().key("name").value().stringType();
+    object.addField().key("last-name").value().stringType();
+    return object.build();
+  }
+}
+----
+
+=== OutputStaticTypeResolver
+
+操作の出力ペイロードでカスタム静的メタデータの解決方法を使用するには、メソッドに `@OutputResolver` アノテーションを付加し、アノテーションの出力値を `OutputStaticTypeResolver` にする必要があります。
+
+これは `OutputStaticTypeResolver` の例であり、メソッド `getStaticMetadata` を実装する必要があります。
+
+[source,java,linenums]
+----
+public class CsvOutputStaticTypeResolver extends OutputStaticTypeResolver {
+  @Override
+  public MetadataType getStaticMetadata() {
+    return BaseTypeBuilder.create(MetadataFormat.CSV).objectType().id("csv-object").build();
+  }
+}
+----
+
+=== AttributesStaticTypeResolver
+
+操作の出力属性でカスタム静的メタデータの解決方法を使用するには、メソッドに `@OutputResolver` アノテーションを付加し、アノテーションの属性値を `OutputStaticTypeResolver` にする必要があります。
+
+これは `AttributesStaticTypeResolver` の例であり、メソッド `getStaticMetadata` を実装する必要があります。
+
+[source,java,linenums]
+----
+public class CsvAttributesStaticTypeResolver extends AttributesStaticTypeResolver {
+
+  @Override
+  public MetadataType getStaticMetadata() {
+    ObjectTypeBuilder object = BaseTypeBuilder.create(MetadataFormat.CSV).objectType();
+    object.addField().key("location").value().stringType();
+    object.addField().key("size").value().numberType();
+    return object.build();
+  }
+}
+----

@@ -1,0 +1,302 @@
+= 出力メタデータ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+
+[[_output_metadata]]
+//TODO: 1.1. ONLY, NO 1.0 VERSION?
+
+出力メタデータは、コンポーネントの結果の型を解決します。各コンポーネントは、ペイロードと属性の静的メタデータまたは動的メタデータを互いに分離して提供できます。
+
+== OutputTypeResolver と AttributesTypeResolver の宣言
+
+`OutputTypeResolver` 実装と `AttributesTypeResolver` 実装は、`MetadataContext` が提供する情報に基づいて、また、最も重要な点として `MetadataKey` を使用してエンドユーザ (Mule アプリケーションの作成者) が必要とする `MetadataType` を特定することによって、`MetadataType` の解決要求を処理します。
+
+`OutputTypeResolver<T>` インターフェイスと `AttributesTypeResolver<T>` インターフェイスは、汎用 `T` でパラメータ化され、`MetadataKeyId` パラメータの型と一致する必要があります。この例では、最も一般的な `MetadataKeyId` 型である `String` を汎用型として使用しています。(他のドキュメントもこの汎用型を参照し、`String` 以外に変更する必要がある場合に型を詳細に定義しています。)
+
+[source,java,linenums]
+----
+public class OutputEntityResolver
+  implements OutputTypeResolver<String>, AttributesTypeResolver<String>  {
+
+  @Override
+  public String getCategoryName() {
+    return "Records";
+  }
+
+  @Override
+  public String getResolverName() {
+    return "OutputEntityResolver";
+  }
+
+  @Override
+  public MetadataType getOutputType(MetadataContext context, String key)
+      throws MetadataResolvingException, ConnectionException {
+    switch (key) {
+      case "Author_id":
+        return context.getTypeLoader().load(AuthorResult.class);
+      case "BookList_id":
+        return context.getTypeLoader().load(BookListResult.class);
+      case "Book_id":
+        return context.getTypeLoader().load(BookResult.class);
+      default:
+        throw new MetadataResolvingException("Unknown key:" + key, INVALID_METADATA_KEY);
+    }
+  }
+
+  @Override
+  public MetadataType getAttributesType(MetadataContext context, String key)
+      throws MetadataResolvingException, ConnectionException {
+
+    if ("Book_id".equals(key)){
+      return context.getTypeLoader().load(BookAttributes.class);
+    }
+
+    // Only Books have Attributes information
+    return context.getTypeBuilder().nullType().build();
+  }
+
+}
+----
+
+上記の例では、`typeLoader` を取得するために `MetadataContext` のみを使用して Java クラスに基づいて MetadataType を記述していますが、提供されている設定要素や接続要素を使用することもできます。
+
+== OutputTypeResolver の使用
+
+`TypeKeysResolver` と `OutputTypeResolver` を使用することで、操作とソースに出力 DataSense サポートを追加できます。`OutputTypeResolver` と特定の `TypeKeysResolver` を一緒に使用する場合の主な制限は、`TypeKeysResolver` で提供される `MetadataKey` が `OutputTypeResolver` によって `MetadataType` に解決できるようにするため、どちらも同じ `category` に属している必要があるという点です。
+
+=== 結果ペイロードへの DataSense の追加
+
+[source,java,linenums]
+----
+public class FetchOperations {
+
+  @OutputResolver(output = OutputEntityResolver.class)
+  public Map<String,Object> get(@Connection MyConnection connection,
+                                @MetadataKeyId(EntityKeysResolver.class) String entityKind){
+
+    return connection.getClient().fetch(entityKind);
+  }
+
+}
+----
+
+上記の例では、フェッチされる `entityKind` に基づいて出力の MetadataType を動的に解決しているため、`EntityKeysResolver` が提供する `Author_id` で `entityKind` を設定してある場合は、その `MetadataKey` で `OutputEntityResolver` が呼び出され、`get` 操作の出力は `AuthorResult` ObjectType に解決されます。
+
+ソースは、同じ出力型解決を使用して、フローにディスパッチされるオブジェクトの MetadataType を記述することができます。宣言は同様です。
+
+[source,java,linenums]
+----
+@MetadataScope(keysResolver = EntityKeysResolver.class,
+               outputResolver = OutputEntityResolver.class)
+public class ListenerSource extends Source<Map<String, Object>, Void>  {
+
+  @MetadataKeyId
+  @Parameter
+  public String type;
+
+  @Connection
+  private ConnectionProvider<MetadataConnection> connection;
+
+  @Override
+  public void onStart(SourceCallback<Map<String, Object>, Void> sourceCallback) throws MuleException {
+    //...
+  }
+
+  @Override
+  public void onStop() {
+    //...
+  }
+
+}
+----
+
+ソースと操作では、出力型の解決のライフサイクルは同じです。まず `MetadataKeyId` を設定してから、そのキーで `OutputTypeResolver` を呼び出して、結果のエンティティの MetadataType を解決します。
+
+=== 結果属性用の DataSense の追加
+
+動的メタデータの解決では、コンポーネントの完全な出力がペイロードだけではなく `Result<Payload, Attributes>` であることを考慮します。
+
+操作またはソースの出力に動的な属性構造がある場合は、`AttributesTypeResolver` (`OutputTypeResolver.java` の例で実装済み) を宣言してから、操作またはソースの宣言にリゾルバへの参照を追加することで、MetadataType を解決することができます。
+
+次の例では、`Book` エンティティを、それぞれが独自の構造を持つ本のコンテンツと属性に分割します。この分割により、エンドユーザは操作の結果をより効果的に理解して使用できます。つまり、データ (ペイロードに格納される本のコンテンツ) とペイロードを特徴付けるメタデータ (本の属性) に分けて考えることができます。
+
+[source,java,linenums]
+----
+public class FetchOperationsWithAttributes {
+
+  @OutputResolver(output = OutputEntityResolver.class,
+                  attributes = OutputEntityResolver.class)
+  public Result<Object, Object> get(@Connection MyConnection connection,
+                                                @MetadataKeyId(EntityKeysResolver.class) String entityKind){
+
+    if ("Book_id".equals(entityKind)){
+      Book book = (Book)connection.getClient().fetch(entityKind);
+      return Result.<Object, Object>builder()
+                   .output(book.content())
+                   .attributes(book.attributes())
+                   .build();
+    }
+
+    return return Result.<Object, Object>builder()
+                 .output(connection.getClient().fetch(entityKind))
+                 .build();
+  }
+
+}
+----
+
+ソースには、ペイロードで使用したのと同じような宣言がありますが、`attributesResolver` 参照が追加されています。
+
+[source,java,linenums]
+----
+@MetadataScope(keysResolver = EntityKeysResolver.class,
+               outputResolver = OutputEntityResolver.class,
+               attributesResolver = OutputEntityResolver.class)
+public class ListenerSource extends Source<Map<String, Object>, Object>  {
+
+  @MetadataKeyId
+  @Parameter
+  public String type;
+
+  //...
+
+}
+----
+
+== ユーザ定義の MetadataKey を持つ出力メタデータ
+
+ユーザ定義の MetadataKey のケースは、コンポーネントの出力にも適用されます。
+クエリの場合は、解決される可能性のある MetadataKey のセットを事前に定義することができません。その代わりに、出力の型または構造を特徴付けるパラメータとその値があります。
+
+たとえば、データベースコネクタには `select` 操作があります。その出力は、クエリ対象のエンティティによって異なります。
+
+[source,java,linenums]
+----
+
+  @OutputResolver(output = SelectMetadataResolver.class)
+  public List<Map<String, Object>> select(@MetadataKeyId String sql, @Config DbConnector connector){
+    // ...
+  }
+
+----
+
+`SelectMetadataResolver` は次のように宣言されています。
+
+[source,java,linenums]
+----
+public class SelectMetadataResolver extends BaseDbMetadataResolver implements OutputTypeResolver<String> {
+
+  @Override
+  public String getCategoryName() {
+    return "DbCategory";
+  }
+
+  @Override
+  public String getResolverName() {
+    return "SelectResolver";
+  }
+
+  @Override
+  public MetadataType getOutputType(MetadataContext context, String query)
+      throws MetadataResolvingException, ConnectionException {
+
+    if (isEmpty(query)) {
+      throw new MetadataResolvingException("No Metadata available for an empty query", FailureCode.INVALID_METADATA_KEY);
+    }
+
+    ResultSetMetaData statementMetaData = getStatementMetadata(context, parseQuery(query));
+    if (statementMetaData == null) {
+      throw new MetadataResolvingException(format("Driver did not return metadata for the provided SQL: [%s]", query),
+                                           FailureCode.INVALID_METADATA_KEY);
+    }
+
+    ObjectTypeBuilder record = context.getTypeBuilder().objectType();
+
+    Map<String, MetadataType> recordModels = resolveRecordModels(statementMetaData);
+    recordModels.entrySet()
+                .forEach(e -> record.addField().key(e.getKey()).value(e.getValue()));
+
+    return record.build();
+  }
+}
+
+----
+
+== メタデータの自動ラップのリスト
+
+`select` の例では、操作から `List<Map<String, Object>` が返されています。SELECT クエリの結果は複数のレコードエントリであるため当然ですが、`SelectMetadataResolver` は `getOutputType` メソッドで ArrayType を記述していません。その代わりに、返された MetadataType は単一の `record` 構造を表しています。
+
+これは何故でしょうか。
+
+すでにお分かりかも知れませんが、操作は ArrayType (リスト、PagingProvider など) を返すため、配列の `generic` 型のみを記述するだけで済みます。OutputTypeResolver と AttributesTypeResolver は常に、​_コレクション_ 型自身ではなく _コレクションの要素_ の MetadataType を解決します。これにより、MetadataType リゾルバの再利用性が高まり、必要なコードを減らすことができます。
+
+解決された属性は、操作の `List` 出力の属性 _ではなく_ 、コレクションの _要素_ の属性 _でもある_ ことを考慮してください。
+
+== MetadataKey を使用しない動的出力メタデータの解決
+
+//TODO: NEEDS CLARIFICATION
+入力と同様、コンポーネントの設定または接続に依存する動的型として、操作の出力は特定の `MetadataKey` がなくても解決できます。この場合も、キーレスリゾルバを宣言するには、`MetadataKeyId` パラメータを省略して、TypeResolvers の MetadataKey を無視してください。
+
+[source,java,linenums]
+----
+public class UserTypeResolver implements OutputTypeResolver, AttributesTypeResolver  {
+
+  @Override
+  public String getCategoryName() {
+    return "User";
+  }
+
+  @Override
+  public MetadataType getOutputType(MetadataContext context, Object key)
+      throws MetadataResolvingException, ConnectionException {
+
+    // The `key` parameter will be `null` if the fetch is performed
+    // as a `KeyLess` Metadata resolution. We'll just ignore it.
+    String schema = getUserSchema(context);
+    return new JsonTypeLoader(schema).load("http://demo.user")
+            .orElseThrow(() -> new MetadataResolvingException("No Metadata is available for the User",
+                                                              FailureCode.NO_DYNAMIC_TYPE_AVAILABLE));
+  }
+
+  @Override
+  public MetadataType getAttributesType(MetadataContext context, Object key)
+      throws MetadataResolvingException, ConnectionException {
+
+    // The `key` parameter will be `null` if the fetch is performed
+    // as a `KeyLess` Metadata resolution. We'll just ignore it.
+    String schema = getUserSchema(context);
+    return new JsonTypeLoader(schema).load("http://demo.attributes")
+            .orElseThrow(() -> new MetadataResolvingException("No Metadata is available for the User Attributes",
+                                                              FailureCode.NO_DYNAMIC_TYPE_AVAILABLE));
+  }
+
+  private String getUserSchema(MetadataContext context) throws MetadataResolvingException, ConnectionException {
+    return context.<DemoConnection>getConnection()
+      .orElseThrow(() -> new MetadataResolvingException("A connection is required to resolve Metadata but none was provided",
+                                                        FailureCode.INVALID_CONFIGURATION))
+      .describeUser();
+  }
+}
+----
+
+[source,java,linenums]
+----
+public class UserOperations {
+
+  @OutputResolver(output = UserTypeResolver.class, attributes=UserTypeResolver.class)
+  public Result<Map<String,Object>, Object> getUser(@Connection DemoConnection connection){
+    User user = connection.getUser();
+
+    return Result.<Map<String,Object>, Object>.builder()
+                 .output(user.personalInfo())
+                 .attributes(user.accountInfo())
+                 .build().
+
+  }
+
+}
+----
+
+
+//TODO multilevel

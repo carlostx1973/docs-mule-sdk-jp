@@ -1,0 +1,87 @@
+= コンテキスト情報インジェクション
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, コンテキスト, 挿入, イベント, 場所
+
+操作またはソースが処理されるコンテキストに関する情報を取得するため、操作またはソースにパラメータを追加できます。パラメータは UI には表示されませんが、SDK によってランタイムに挿入されます。
+
+== コンポーネントの場所
+
+操作を実行したりソースを使用したりするときに、主にログ記録の目的で、コンポーネントの場所に関するコンテキストが必要になる場合があります。これを実現するため、`ComponentLocation` をパラメータとして定義し、それを挿入できます。
+
+次の例は、ソースを開始するときにコンポーネントの場所をログに記録する方法を示しています。
+
+[source,java,linenums]
+----
+
+@Alias("listener")
+public class HttpListener extends Source<InputStream, HttpRequestAttributes> {
+
+  private static final Logger LOGGER = getLogger(HttpListener.class);
+
+  @Connection
+  private ConnectionProvider<HttpServer> serverProvider;
+
+  @Parameter
+  private ComponentLocation location;
+
+  @Parameter
+  private String path;
+
+  private HttpServer server;
+
+  @Override
+  public void onStart(SourceCallback<InputStream, HttpRequestAttributes> sourceCallback) throws MuleException {
+    server = serverProvider.connect();
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug("Starting HTTP Listener %s on path %s", location.getLocation(), path);
+    }
+    server.listen(path);
+  }
+// ...
+}
+----
+
+次の例は、操作 (ソースなし) のコンテキストでコンポーネントの場所をログに記録する方法を示しています。
+
+[source,java,linenums]
+----
+//ComponentLocation is added as a parameter when used in an operation
+  public String sayHi(String person, String q, ComponentLocation location) {
+    // ...
+
+    System.out.println("Location: " + location.getLocation());
+
+   // ...
+  }
+----
+
+== イベントの追跡
+
+*バージョン 1.1 以降で使用可能*
+
+ログを使用してイベントを追跡できるようにするには、操作およびソースコールバックで `CorrelationInfo` パラメータを使用します。この相関関係情報により、処理されるイベントのイベント ID と相関関係 ID が提供されます。
+
+`CorrelationInfo` パラメータを操作メソッドまたはソースコールバックに追加する必要があるだけです。インスタンスには、メソッドまたはコールバックが実行するイベント情報が入力されます。
+
+次の簡単な例は、`CorrelationInfo` の使用方法を示しています。
+
+[source,java,linenums]
+----
+public class ObjectStoreOperations {
+  private static final Logger LOGGER = getLogger(ObjectStoreOperations.class);
+// ...
+  @Throws(StoreErrorTypeProvider.class)
+  public void store(String key,
+                    @Content TypedValue<Serializable> value,
+                    ObjectStore objectStore,
+                    CorrelationInfo correlationInfo) {
+      objectStore.store(key, value);
+      if (LOGGER.isDebugEnabled()) {
+        LOGGER.debug("Object stored with key: %s .The event id is: %s", key, correlationInfo.getEventId());
+      }
+  }
+// ...
+}
+----

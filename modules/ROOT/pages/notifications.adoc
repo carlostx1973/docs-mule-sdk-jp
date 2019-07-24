@@ -1,0 +1,138 @@
+= 通知
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: 通知, sdk, 操作, ソース
+
+*バージョン 1.1 以降で使用可能*
+
+Mule の通知とは、アクションを他のコンポーネントに伝える手段です。通知は、主に監視の目的で使用します。
+
+// TODO add link to mule notification docs
+// For more information about how notifications works in Mule, please refer
+// to the _
+
+== 通知の定義
+
+最初のステップでは、モジュールで実行できるすべての通知を定義します。これは、`NotificationActionDefinition` インターフェースを実装する `Enum` を定義することで行います。
+`Enum` で定義される各値は、通知アクションと見なされます。
+
+通知にはデータを含めることができるため、それぞれに関連付けられた `DataType` を指定する必要があります。
+
+次の例では、`NEW_EVENT` と `FINISHED_EVENT` の 2 つのアクションを宣言しています。
+これらは、`Integer` とカスタムオブジェクト (`SimpleObject`) をデータとして持ちます。
+
+[source,java,linenums]
+----
+public enum SimpleNotificationAction implements NotificationActionDefinition<SimpleNotificationAction> {
+
+  NEW_EVENT(DataType.fromType(Integer.class)),
+
+  FINISHED_EVENT(DataType.fromType(SimpleObject.class));
+
+  private final DataType dataType;
+
+  SimpleNotificationAction(DataType dataType) {
+    this.dataType = dataType;
+  }
+
+  @Override
+  public DataType getDataType() {
+    return dataType;
+  }
+
+}
+----
+
+=== モジュールへの通知の登録
+
+モジュールが実行する通知を特定するには、`@Extension` アノテーションが付加されたクラスに、定義済み通知を含む `NotificationActionDefinition` 列挙を参照する `@NotificationActions` アノテーションを付加する必要があります。定義済みのすべてのカスタムデータ型も一緒にエクスポートする必要があります。
+
+[source,java,linenums]
+----
+@Extension(name = "Foo")
+@NotificationActions(SimpleNotificationAction.class)
+@Export(classes = {SimpleObject.class})
+@Xml(prefix = "test-connector")
+public class FooExtension {
+  // Content
+}
+----
+
+== 実行する通知の伝達
+
+モジュールのすべての実行可能な通知を宣言したら、通知を実行する操作とソースに通知をバインドするための情報を提供する必要があります。
+
+そのためには、操作またはソースによって実行される通知を特定する `NotificationActionProvider` クラスを実装する必要があります。
+
+[source,java,linenums]
+----
+public class ExecuteNotificationActionProvider implements NotificationActionProvider {
+    @Override
+    public Set<NotificationActionDefinition> getNotificationActions() {
+        HashSet<NotificationActionDefinition> errors = new HashSet<>();
+        errors.add(SimpleNotificationAction.NEW_EVENT);
+        errors.add(SimpleNotificationAction.FINISHED_EVENT);
+        return errors;
+    }
+}
+----
+
+`NotificationActionProvider` を定義したら、`@Fires` アノテーションで適切な操作またはソースにバインドします。
+
+[source,java,linenums]
+----
+@Fires(ExecuteNotificationActionProvider.class)
+public void execute(){
+  // operation body
+}
+----
+
+== 通知の実行
+
+WARNING: 操作またはソースの `NotificationActionProvider` で宣言されていない通知アクションを実行すると失敗します。宣言されている型と一致しないデータを持つ通知を実行しても失敗します。
+
+=== 操作
+
+操作から通知を実行するには、`NotificationEmitter` パラメータを追加する必要があります。そして、このパラメータを使用して、指定された `NotificationActionDefinition` と関連データを `TypedValue` として通知を実行できます。
+
+[source,java,linenums]
+----
+@Fires(ExecuteNotificationActionProvider.class)
+public void execute(NotificationEmitter notificationEmitter){
+  notificationEmitter.fire(NEW_EVENT, TypedValue.of(4));
+  // operation body
+  notificationEmitter.fire(FINISHED_EVENT, TypedValue.of(new SimpleObject()));
+}
+----
+
+=== ソース
+
+操作とは異なり、ソースは処理するメッセージの受信時や生成時だけではなく、完了時 (正常または失敗に関係なく) にも通知を実行します。
+
+通知は、操作の場合と同様に `NotificationEmitter` パラメータを追加することで `@OnSuccess`、`@OnError`、および `@OnTerminate` メソッドから実行できます。
+
+//TODO: Add `@OnBackPressure` once documented
+
+[source,java,linenums]
+----
+@OnSuccess
+  public void onSuccess(@ParameterGroup(name = "Success Info", showInDsl = true) PersonalInfo successInfo,
+                        NotificationEmitter notificationEmitter) {
+
+    // on sucess body
+    notificationEmitter.fire(FINISHED_EVENT, TypedValue.of(successInfo.getSimpleObject()));
+  }
+----
+
+ただし、メッセージの受信または生成時には、`SourceCallbackContext` を使用して、メッセージの処理完了時に特定の通知を実行するように指定することのみが可能です。
+
+[source,java,linenums]
+----
+@Override
+  public void onStart(SourceCallback<String, Object> sourceCallback) throws MuleException {
+    // source body
+    context.fireOnHandle(NEW_EVENT, TypedValue.of(7));
+    sourceCallback.handle(result, context);
+  }
+----

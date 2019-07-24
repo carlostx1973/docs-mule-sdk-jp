@@ -1,0 +1,137 @@
+= モジュールのライセンス
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+
+SDK で作成されたモジュールは、3 種類のライセンスのいずれかを持ち、ライセンスによってアプリケーションの実行要件が異なります。
+
+== コミュニティモジュール
+
+すべてのモジュールのデフォルトであり、コミュニティモジュールを使用するアプリケーションは、すべての Mule Runtime で特に要件なしで実行できます。
+
+== エンタープライズモジュール
+
+エンタープライズモジュールを使用しているアプリケーションは、Mule EE Runtimes でしか実行できないため、モジュールのユーザは MuleSoft Enterprise ライセンスが必要です。モジュールを EE 専用として宣言するのは非常に簡単です。単に `@RequiresEnterpriseLicense` アノテーションを付加するだけです。
+
+[source,java,linenums]
+----
+
+@Extension(name = "enterprise")
+@RequiresEnterpriseLicense
+public class EnterpriseConnector {
+
+}
+----
+
+デフォルトでは、`RequiresEnterpriseLicense` はユーザに完全な MuleSoft Enterprise ライセンスを求めますが、Runtime の評価ライセンスでも実行できるように宣言することもできます。これは、`RequiresEnterpriseLicense` アノテーションで `allowEvaluationLicense` フラグを使用して設定します。
+
+[source,java,linenums]
+----
+
+@Extension(name = "enterprise")
+@RequiresEnterpriseLicense(allowEvaluationLicense = true)
+public class EnterpriseConnector {
+
+}
+----
+
+== カスタムモジュールライセンス
+
+MuleSoft の認定コネクタは、専用のカスタムライセンスを作成するための _認定ライセンス生成キー_ を MuleSoft に要求できます。これにより、認定コネクタを使用するユーザは、モジュールを開発したパートナーからカスタムライセンスを入手できます。
+
+MuleSoft 認定コネクタを構築したパートナーは、顧客がコネクタを使用して Mule アプリケーションを構築し、デザイン時にテストできる機会を提供できます。顧客がコネクタを使用して Mule アプリケーションをデプロイしようとすると、パートナーのカスタムライセンスが求められます。
+
+=== コネクタ用のライセンス生成キーの取得
+
+開発したコネクタの認定を MuleSoft に申請する前に、認定コネクタパートナー候補は次の手順を実行する必要があります。
+
+. MuleSoft がパートナー用のキーとキーストアを生成するために必要な以下の情報を用意します。
++
+* 会社名 (ベンダー名)
+* 連絡先メール
+* 連絡メッセージ
+* Connector Name (コネクタ名)
++
+. MuleSoft にキーとキーストアを要求します。
+.. 公開 `.key` は、コネクタに保存してあるファイルです。
+.. ライセンスを生成するパートナーとしての自分用の `.jks` マスタキーストア。
+
+== コネクタコードの調整と公開キーの保存
+
+キーとキーストアを取得したら、次の操作を実行します。
+
+. パートナーは、要求されたすべての属性に `@RequiresEntitlement` アノテーションを適用して値を入力することで、コネクタのプロジェクトコードを調整します。
++
+* `name` はコネクタ名でなければなりません。
+* `vendor` 属性は、`.key` サフィックスの前の部分でなければなりません。たとえば、MuleSoft が `prov-name.key` というベンダーキーを生成した場合、パートナーは `prov-name` をベンダーとして入力します。
++
+[source,java,linenums]
+----
+@Extension(name="connector-name", vendor="prov-name")
+@RequiresEntitlement(name="connector-name")
+public class LicensedConnector {
+  ...
+}
+----
++
+* MuleSoft が提供した `.key` ファイルをコネクタのプロジェクトディレクトリの `src/main/resources` または `src/main/resources/license` 内に置きます。
+
+=== サンプルパートナーコネクタ
+
+サンプルコネクタをダウンロードして Studio にインポートすることで、ライセンス管理アノテーションがコネクタコードでどのように設定されるかを確認できます。顧客の `.key` ライセンスファイルは `src/main/resources` に格納されている必要があります。
+
+== ライセンスファイルの生成
+
+MuleSoft のパートナーは、`.jks` ファイルとライセンス生成プラグインを使用して、コネクタの顧客に送信するライセンスを生成します。
+
+コマンドラインから、`.jks` ファイルが格納されているディレクトリで、`vendor.keystore` に自分の `.jks` ファイルへのパスを指定して、次のコマンドを実行します。
+
+//TODO redeploy license plugin as org.mule.extension:mule-extension-license
+----
+mvn org.mule.tools.devkit:mule-devkit-license:license  -Dvendor.keystore=betaprovider-license-demo.jks
+----
+
+[NOTE]
+必要に応じて、上のコマンドに `-Ddays.to.expire=<days-until-this-license-expires>` を付加することで、ライセンスの有効期限を指定することもできます。顧客の名前をライセンスに追加するには、`-Dclient=<client-name>` を追加します。
+
+ライセンスが正常に作成されると、出力は次のように表示されます。
+
+----
+[INFO] Scanning for projects...
+[NOTE]
+[INFO] ------------------------------------------------------------------------
+[INFO] Building Maven Stub Project (No POM) 1
+[INFO] ------------------------------------------------------------------------
+[NOTE]
+[INFO] --- mule-devkit-license:license (default-cli) @ standalone-pom ---
+* Enter the name of the client whom will receive this license: Bob
+* Enter the name of the provider of the Entitlement as it appears in the @RequiresEntitlement annotation: betaprovider
+* Enter the name of the Entitlement as it appears in the @RequiresEntitlement annotation: lic-demo
+* Enter the name of the Connector as it appears in the @Connector "name" attribute: license-demo
+* Enter keystore password:
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time: 18.151s
+[INFO] Finished at: Thu Dec 10 09:34:41 ART 2015
+[INFO] Final Memory: 6M/287M
+[NOTE]
+----
+
+== ライセンス付きコネクタを含む Mule アプリケーションの開発
+
+コネクタライセンスが正常に機能しているかどうかを確認するには、ライセンス (`.lic` ファイル) が Mule アプリケーションや Mule サーバからアクセスできる必要があります。
+
+=== Mule アプリケーション内のライセンスファイル
+
+コネクタのライセンスを購入した顧客は、パートナーまたはベンダーから提供された `.lic` ファイルを以下のディレクトリに格納できます。
+
+* (Studio で開発した) アプリケーションの `src/main/resources`
+* アプリケーションがすでに展開されてサーバにデプロイされている場合は `app/classes`
+
+=== Mule サーバ内のライセンスファイル
+
+ライセンスをアプリケーションに格納する代わりに、Mule サーバの `conf/` フォルダに格納することができます。
+
+[NOTE]
+複数のアプリケーションで同じライセンスが必要な場合は、Mule サーバにライセンスを保存することをお勧めします。

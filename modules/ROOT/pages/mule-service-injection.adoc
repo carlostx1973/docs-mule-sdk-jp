@@ -1,0 +1,48 @@
+= Mule サービスインジェクション
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, 連動関係, 挿入, レジストリ, サービス
+
+== Mule サービスの使用
+
+モジュールを実装する際には、Mule が提供するいくつかのサービスの使用が必要となる場合があります。これらのサービスとしては、`ObjectStoreManager`、`LockFactory`、`HttpService` などがあります。
+
+サービスを使用するには、`MuleContext` のレジストリから取得する必要はありません。単に `@Inject` アノテーションを使用してコンポーネント (操作、ソース、設定など) に挿入するだけです。
+
+レジストリのサービスをコンポーネントに挿入するシンプルな例を示します。
+
+.例: @Inject アノテーションの使用
+[source,java,linenums]
+----
+public class ObjectStoreOperations {
+// ...
+  @Inject
+  private ObjectStoreManager runtimeObjectStoreManager;
+// ...
+  @Throws(StoreErrorTypeProvider.class)
+  public void store(String key,
+                  @Content TypedValue<Serializable> value,
+                  @Optional @ParameterDsl(allowInlineDefinition = false) ObjectStore objectStore) {
+    ObjectStore os = objectStore == null ? runtimeObjectStoreManager.getDefaultPartition() : objectStore;
+    os.store(key, value);
+  }
+// ...
+}
+----
+
+一般的な Mule サービスをいくつか紹介します。
+
+* `LockFactory`: 共有データにアクセスするために同期が必要なすべての Mule コンポーネントは、このインターフェイスのデフォルト実装からロックを使用して同期する必要があります。
+
+* `ExpressionManager`: XML、Java、スクリプト、アノテーションなど、Mule 設定に組み込まれた式を評価するためのユニバーサルアクセスを提供します。
+
+* `TransformationService`: 値を別の指定された型に変換するためのサービスです。
+
+* `HttpService`: HTTP のサーバ実装とクライアント実装の両方を提供します。コネクタで HTTP 接続を使用する場合は、このサービスの使用を試行する必要があります。
+
+* `SchedulerService`: Mule Runtime に存在する異なるスケジューラとスレッドプールへのアクセスを提供し、タスクをスケジュールできるようにします。
+
+* `SoapService`: SOAP サービスをコンシュームする SOAP クライアントを作成するサービスです。
+
+* `ObjectStoreManager`: `ObjectStore` インスタンスの作成と管理を担当するマネージャです。

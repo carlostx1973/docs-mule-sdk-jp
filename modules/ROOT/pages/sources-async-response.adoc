@@ -1,0 +1,39 @@
+= メッセージソースからの非同期応答の送信
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, ソース, リスナ, トリガ, 応答, 出力, 非同期
+
+ソースは、非同期で応答を送信できます。非同期ソースの主なユースケースは次のとおりです。
+
+* 応答操作が非ブロックである。
+* 応答操作はブロックだが、それを開始したスレッドとは別のスレッド (通常、`OnSuccess` または `OnError` アノテーションが付加されたメソッドを実行するスレッド) で非同期で実行される。
+* ソースは、個別のスレッドで応答ストリームをコンシュームする必要のある非同期監査を実行する。
+
+このようなケースでは、次のようになります。
+
+* Runtime は応答が非同期であることを認識する必要がある。認識していない場合、応答を生成するスレッドと、応答を取得するメッセージに関連付けられているリソースを解放しようとする Runtime 間で競合状況が発生します。
+* `OnSuccess` または `OnError` アノテーションが付加されたメソッドに `SourceCompletionCallback` 型の引数が含まれている必要がある。これにより、ソースが非同期であることが Runtime に通知されます。
+
+Runtime は、`success()` または `error(Throwable)` メソッドが呼び出されるまで関連付けられているイベントを完了しません。これは非常に強いコントラクトです。ソースが適切に Runtime に通知せずに `SourceCompletionCallback` を要求すると、最終的に Runtime 全体がフリーズする可能性があります。
+
+例を挙げます。
+[source,java,linenums]
+----
+@OnSuccess
+public void onSuccess(@Content String response, SourceCompletionCallback callback) {
+  asyncResponder.sendResponse(response, new ResponderCallback() {
+    void onSuccess() {
+      callback.success();
+    }
+
+    void onFailure(Throwable t) {
+      callback.error(t);
+    }
+  };)
+}
+----
+
+== 次のステップ
+
+<<sources-transactions#, トランザクションメッセージソース>>

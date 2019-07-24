@@ -1,0 +1,46 @@
+= Null Safe
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, アノテーション, null, 安全
+
+ユーザがパラメータの値を指定していないときでも `@Parameter` をインスタンス化する必要がある場合があります。次に例を示します。
+
+[source,java,linenums]
+----
+@Parameter
+@Optional
+private List<Integer> numbers;
+----
+
+`numbers` をコードで操作する場合は、`NullPointerException` を発生させないようにするために、どこかで `numbers == null` のチェックが必要です。
+
+SDK は `null` の代わりに空のリストを提供する `@NullSafe` などのアノテーションの使用をサポートしています。これを使用すると、SDK は値が指定されていない場合には自動的に値を作成します。
+
+`@NullSafe` アノテーションにはいろいろな種類があります。`List` インターフェースや `Map` インターフェースと一緒に使用すると、`@NullSafe` はこれらのコレクションのデフォルト実装を作成します。
+
+次の例では、POJO を null safe 型としています。
+
+[source,java,linenums]
+----
+@Parameter
+@Optional
+@NullSafe
+private Foo foo;
+----
+
+ご推察のとおり、SDK は `Foo` をインスタンス化して、`foo` パラメータに割り当てることで、手動での null チェックを不要にします。
+
+`@NullSafe` を POJO で使用する場合は、POJO 内で宣言するすべてのパラメータを​_省略可能_​とする必要があります。SDK は、必須パラメータのデフォルト値を作成できません。そのため、`@NullSafe` を使用して必須パラメータを自動的にインスタンス化することは無意味です。
+
+パラメータの型を使用する代わりに、特定のクラスをインスタンス化するように `@NullSafe` を設定することもできます。これは、パラメータの型をインスタンス化できない場合 (抽象クラスやインターフェースなど) に便利です。
+
+インスタンス化するクラスは、アノテーションで `defaultImplementingType` 属性を設定することで指定します。次に例を示します。
+
+[source,java,linenums]
+----
+@Parameter
+@Optional
+@NullSafe(defaultImplementingType = Foo.class)
+private AbstractFoo foo;
+----

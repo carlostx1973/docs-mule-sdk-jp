@@ -1,0 +1,308 @@
+= 値プロバイダ
+ifndef::env-site,env-github[]
+include::_attributes.adoc[]
+endif::[]
+:keywords: mule, sdk, 値プロバイダ, 動的値
+
+コネクタを開発する場合、エンドユーザが値セットからパラメータを選択できるようにすることができます。これにより、ユーザは何を設定するかを容易に知ることができ、開発者は設定される値が正しいことに確信が持てます。
+
+<<java_enum,Java 列挙>>をパラメータとして使用して、この機能を既知の値に対して提供できます。SDK が列挙からすべての値を自動的に取得するため、値を UI のコンボセレクタとして提供できます。
+
+カスタム値など、既知ではない値を含めるには、代わりに<<value_providers,値プロバイダ>>を使用する必要があります。
+
+[[java_enum]]
+== Java 列挙
+
+次のロールを使用してコンテンツをパブリッシュできるコンテンツパブリッシュサービス用のコネクタを開発しているとします。
+
+* `ADMIN`
+* `READER`
+* `WRITER`
+
+これらのロールを提供するには、次のように、`UserRole` 列挙を作成して `publishAs` 操作のパラメータとして公開します。
+
+.例: 既知のロールを定義する Java 列挙
+[source,java,linenums]
+----
+public enum UserRole {
+    ADMIN, READER, WRITER
+}
+----
+
+次の例の操作では、ユーザは特定の `UserRole` を使用してコンテンツをパブリッシュできます。
+
+[source,java,linenums]
+----
+public void publishAs(@Content Object content, UserRole roleEnum){
+    System.out.println("Publishing " + content + " with Role: " + roleEnum);
+}
+----
+
+このソリューションは容易であり効果的ですが、いくつかの制限事項と問題があります。
+
+* カスタム値をサポートしない。パラメータが列挙に基づくため、カスタム値を定義できません。たとえば、カスタムロールを使用して接続先のサービスを設定できる場合、コネクタの機能が制限されるため、`UserRole` 列挙を引き続き使用することはできません。
+* 値が静的に定義される。接続や設定に応じて値を変更することはできません。
+* Java 列挙の命名に制限がある。列挙値を数字または特殊文字で始めることはできません。
+
+カスタムロールが必要で、既知のユーザロールのドロップダウンリストも使用する必要がある場合は、<<value_providers,値プロバイダ>>を使用して、動的値と既知の値に対応できます。
+
+[[value_providers]]
+== 値プロバイダ
+
+値プロバイダは、コネクタのあらゆるコンポーネント (xref:operations.adoc[操作]、xref:sources.adoc[ソース]、xref:configs.adoc[設定]、xref:connections.adoc[接続プロバイダ]、スコープなど) 内のあらゆるパラメータに値を動的かつスマートな方法で提供するためのメカニズムです。
+
+[[StaticUserRoleValueProvider]]
+=== 値プロバイダを実装する方法
+
+次の例では、上記の列挙ソリューションと同じ動作が生成されますが、値の開集合のメリットがあります。これはカスタム値をサポートします。
+
+. `ValueProvider` を実装する Java クラスを作成します。
++
+このインターフェースを実装する場合、<<value-structure,値>>のセットを返す `resolve()` メソッドを実装する必要があります。
++
+[source,java,linenums]
+----
+public class StaticUserRoleValueProvider implements ValueProvider {
+
+    @Override
+    public Set<Value> resolve() {
+        return ValueBuilder.getValuesFor("ADMIN", "READER", "WRITER");
+    }
+}
+----
++
+. 動的値を必要とするパラメータを `@OfValues()` アノテーションでマークします。
++
+`@OfValues` には、パラメータにバインドされる `ValueProvider` 実装が必要です。次に例を示します。
++
+[source,java,linenums]
+----
+public void publishAs(@Content Object content,
+@OfValues(StaticUserRoleValueProvider.class) String userRole){ //<1>
+    System.out.println("Publishing " + content + " with Role: " + userRole);
+}
+----
++
+. これを Studio または Design Center で使用して、値の取得を開始できるようになりました。
++
+image::value-provider-static.gif[align="center"]
+
+=== 接続または設定を使用した値プロバイダ
+
+値プロバイダは接続および設定を受け取ることができます。これにより、現在の接続および設定に基づいて値を解決できます。
+
+IMPORTANT: 接続および設定パラメータに配置されている値プロバイダに接続および設定を挿入することはできません。
+
+==== 接続または設定の受け取り
+
+`@Connection` および `@Config` アノテーションを使用して、値プロバイダ内での接続および設定の使用を宣言します。これらのアノテーションを使用する値プロバイダが正常に機能するには、設定または接続が​_有効である_​ことが必要です。SDK では、接続と設定が有効でない限り、解決ロジックは実行されません。
+
+[source,java,linenums]
+----
+public class ConnectedValueProvider implements ValueProvider {
+
+  @Connection
+  ServiceConnection connection;
+
+  @Config
+  ServiceConfig config;
+
+  @Override
+  public Set<Value> resolve() throws ValueResolvingException {
+    //Do whatever is required with the connection or config
+    List<String> result = connection.retrieveInfo();
+    return ValueBuilder.getValuesFor(result);
+  }
+}
+----
+
+WARNING: 挿入する接続と設定の型は、値プロバイダを参照する操作またはソースで定義された型と互換性がある必要があります。
+
+=== 例 2: 接続された値プロバイダのユースケース
+
+//TODO: USE OF "communicate"? Is there another word we can use? have this checked.
+
+上記のロールの例では、サービスでカスタムロールを定義できましたが、コネクタがそれらのロールを伝達することはできませんでした。
+
+稼働中の接続を介して値を解決するように値プロバイダを実装すると、使用可能なロールをフェッチし、値プロバイダを介してロールを伝達できるようになります。
+
+[source,java,linenums]
+----
+public class UserRoleValueProvider implements ValueProvider {
+
+  @Connection
+  ServiceConnection connection;
+
+  @Override
+  public Set<Value> resolve() throws ValueResolvingException {
+    return ValueBuilder.getValuesFor(connection.getAvailableRoles());
+  }
+}
+----
+
+=== 他のパラメータに依存する値プロバイダ
+
+接続と設定を挿入することに加えて、値プロバイダは、​_同じコンテキスト_​の他のパラメータに依存することができます。SDK では、必須パラメータが設定されるまで、値プロバイダの解決ロジックは実行されません。
+
+「_同じコンテキスト_」とは、値プロバイダをコンポーネントで使用する場合、そのコンポーネントに必須パラメータが存在する必要があることを意味します。たとえば、パラメータ `dynamicParam` 内で値プロバイダを使用する設定 `FancyConfig` でパラメータ `aConfigParam` の値を必要とする場合、`aConfigParam` が `FancyConfig` 設定に存在する必要があります。
+
+CAUTION: 必須パラメータで式を使用すると、アクティブなイベントなしでは式を解決できないために値プロバイダの実行が無効になる場合があります。
+
+==== 必須パラメータの宣言
+
+コネクタや設定の場合と同様に、`@Parameter` アノテーションを使用して、解決ロジックの実行に必要なパラメータを宣言します。次の例の `String requiredParam` など、必須パラメータと​*同じ型と名前*​の値プロバイダの項目でアノテーションを使用します。
+
+.外部パラメータの例: 2 つのパラメータを宣言する操作 (1 つは値プロバイダを使用)
+[source,java,linenums]
+----
+public void operationWithValueProvider(String requiredParam, @OfValues(ValueProviderWithRequiredParams.class) String dynamicParam){
+
+}
+----
+
+.外部パラメータの例: `requiredParam` パラメータを必要とする値プロバイダ
+[source,java,linenums]
+----
+public class ValueProviderWithRequiredParams implements ValueProvider {
+
+    @Parameter
+    String requiredParam;
+
+    @Override
+    public Set<Value> resolve() {
+      return ValuesBuilder.getValuesFor(param);
+    }
+}
+----
+=====  必須パラメータが設定されていない場合
+
+コンポーネントで必須として定義されたパラメータをエンドユーザが設定しない場合、値プロバイダは実行されません。ただし、パラメータが省略可能として定義されている場合、値プロバイダは `Null` 値を使用して実行されるため、null に対応する処理が必要です。
+
+===== 例 3: コンテキストパラメータを使用する値プロバイダ
+
+日と月の日付ピッカーが必要なケースを考えてみます。
+2 つの列挙を使用すればこれを容易に表すことができますが、すべての月の日数が同じであるわけではありません。そのため、この表現で、ユーザが無効な日付を設定できるようにします。
+
+この問題を修正する手順は、次のとおりです。
+
+. 日付ピッカーを公開する操作を定義します。
++
+この操作は 2 つのパラメータを受け取ります。使用可能なすべての月を静的に伝達する `monthEnum` と、月の日付を伝達するために使用する `day` です。
++
+.Publish On Date (パブリッシュ日) 操作
+[source,java,linenums]
+----
+public void publishOnDate(Month monthEnum, @OfValues(DayValueProvider.class) String day) {
+}
+----
++
+. `Month` 列挙を定義します。
++
+`Month` は、使用可能なすべての月を含み、各月の日数を特定します。
++
+.MonthEnum 列挙
+[source,java,linenums]
+----
+public enum Month {
+
+    JANUARY(31), FEBRUARY(28), MARCH(31), APRIL(30), MAY(31), JUNE(30),
+    JULY(31), AUGUST(31), SEPTEMBER(30), OCTOBER(31), NOVEMBER(30), DECEMBER(31);
+
+    private int dayCount;
+
+    MonthEnum(int i) {
+        dayCount = i;
+    }
+
+    public int getDayCount() {
+        return dayCount;
+    }
+}
+----
++
+. 選択された月をコンシュームする値プロバイダを作成します。
++
+選択された月に応じて、値プロバイダは、その月で使用可能なすべての日を動的に提供します。`DayValueProvider` は、動作するには `monthEnum` が必要であることを示します。
++
+[source,java,linenums]
+----
+public class DayValueProvider implements ValueProvider {
+
+    @Parameter
+    Month monthEnum; //<1>
+
+    @Override
+    public Set<Value> resolve() {
+      return ValueBuilder.getValuesFor(getNumbersFrom(1, monthEnum.getDayCount())
+              .stream()
+              .map(num -> String.format("%02d", num)));
+    }
+
+    List<Integer> getNumbersFrom(int init, int end){
+        List<Integer> numbers = new ArrayList<>(end - init);
+        for (int i = init; i <= end; i++) {
+            numbers.add(i);
+        }
+        return numbers;
+    }
+}
+----
++
+. 結果は次のようになります。
++
+次のアニメーションで示されているように、`Day` セレクタは、`Month enum` パラメータの値に基づいて動的に入力されます。
++
+image::value-provider-months.gif[align="center"]
+
+[[value-structure]]
+==== 値構造
+
+値プロバイダは値のセットを返します。`Value` は、次のプロパティで構成される単純な構造です。
+
+* `id` : この値の一意の識別子。これは必須です。
+* `displayName`: UI に表示される名前。これは省略可能です。デフォルトでは、ID が表示名として使用されます。
+
+==== 値の作成方法
+
+`ValueBuilder` を使用して値を作成するための独自の方法があります。
+
+[source,java,linenums]
+----
+
+ValueBuilder adminValueBuilder = ValueBuilder.newValue("ADMIN_USR_ROLE"); //<1>
+adminValueBuilder.withDisplayName("Admin"); //<2>
+Value adminValue = newValue.build(); //<3>
+
+----
+
+<1> `Value` の ID を使用して `ValueBuilder` を作成する必要があります。
+<2> 必要に応じて、表示名を使用して値を強化することができます。
+<3> `Value` インスタンスを返すためのビルダーを作成します。
+
+== ValueBuilder ユーティリティ
+
+`ValueBuilder` は、特定のケースで値の作成を容易にするユーティリティを提供します。
+
+Values に変換する必要がある値を含む `List<String>`、`String[]`、`Stream<String>`、または `Map<String, String>` がある場合、この変換を行う最も簡単な方法は、`getValuesFor()` を使用することです。
+
+[source,java,linenums]
+----
+// Array Case
+Set<Value> arrayCase = ValueBuilder.getValuesFor("Admin", "Writer");
+
+// List Case
+List<String> valueList = new ArrayList<>();
+valueList.add("Admin");
+valueList.add("Writer");
+Set<Value> listCase = ValueBuilder.getValuesFor(valueList);
+
+// Stream Case
+Set<Value> streamCase = ValueBuilder.getValuesFor(valueList.stream());
+
+// Map Case
+// The Key will be considered as ID and the Value as Display Name
+Map<String, String> valueMap = new HashMap<>();
+valueMap.put("ADMIN_USR_ROLE", "Admin");
+valueMap.put("WRITER_USR_ROLE") "Writer");
+Set<Value> mapCase = ValueBuilder.getValuesFor(futureValues);
+----
